@@ -1,25 +1,15 @@
 'use strict';
 // No external libraries, analytics, network fetches or remote APIs are used by this app.
-const DEMO = {
-  schemaVersion: 1,
-  title: 'Демонстрационный учебный банк',
-  operator: 'НЕ ЗАДАН — ДЕМО',
-  aircraft: 'B737 NG (демо-оболочка)',
-  bankRevision: 'DEMO-1',
-  items: [
-    {id:'demo-elec-1',type:'quiz',topic:'Electrical',prompt:'ДЕМО: в каком разделе FCOM следует искать описание электроснабжения?',options:['Electrical','Hydraulics','Air Conditioning','Landing Gear'],correctIndices:[0],answer:'Electrical',explanation:'Это демонстрационный вопрос для проверки интерфейса. Он не заменяет изучение FCOM.',source:{document:'FCOM',section:'Electrical (точный раздел уточнить)',revision:'ДЕМО',page:'',verified:false}},
-    {id:'demo-hyd-1',type:'quiz',topic:'Hydraulics',prompt:'ДЕМО: какой источник должен иметь приоритет при проверке конкретного ограничения вашей авиакомпании?',options:['Проверенный актуальный документ оператора','Неподписанный конспект','Ответ на форуме','Квиз другой авиакомпании'],correctIndices:[0],answer:'Актуальный утверждённый документ оператора',explanation:'Наличие ссылки на документ и редакцию помогает проверить корректность учебного вопроса.',source:{document:'FCOM',section:'Limitations — указать конкретный пункт',revision:'ДЕМО',page:'',verified:false}},
-    {id:'demo-memory-1',type:'memory',topic:'Memory Items',prompt:'ДЕМО: воспроизведи последовательность действий выбранного Memory Item из вашего QRH.',answer:'ЗДЕСЬ ДОЛЖНА БЫТЬ ТОЧНАЯ ПРОВЕРЕННАЯ ПОСЛЕДОВАТЕЛЬНОСТЬ ИЗ QRH ВАШЕГО ОПЕРАТОРА. В ДЕМО ОНА НАМЕРЕННО НЕ ПРИВЕДЕНА.',explanation:'При создании настоящей карточки необходимо сохранить порядок и условия применения, а также номер редакции QRH.',source:{document:'QRH',section:'Указать название чек-листа',revision:'ДЕМО',page:'',verified:false}},
-    {id:'demo-limit-1',type:'limitation',topic:'Limitations',prompt:'ДЕМО: назови точное ограничение и условия его применения из выбранного пункта FCOM.',answer:'ЗДЕСЬ БУДЕТ ПРОВЕРЕННОЕ ЗНАЧЕНИЕ ИЗ АКТУАЛЬНОГО FCOM ВАШЕГО ОПЕРАТОРА. ЧИСЛО НЕ ПРИДУМЫВАЕТСЯ.',explanation:'При добавлении значения фиксируй единицы измерения, условия, оговорки и номер редакции руководства.',source:{document:'FCOM',section:'Limitations — выбрать пункт',revision:'ДЕМО',page:'',verified:false}},
-    {id:'demo-interview-1',type:'interview',topic:'Interview',prompt:'ДЕМО: объясни работу выбранной системы в нормальном режиме и при отказе одного компонента.',answer:'ЗДЕСЬ ДОЛЖЕН БЫТЬ ПОДГОТОВЛЕННЫЙ ОТВЕТ С ПРИВЯЗКОЙ К FCOM/FCTM. В ДЕМО ОН НЕ СОДЕРЖИТ ТЕХНИЧЕСКИХ УТВЕРЖДЕНИЙ.',explanation:'Открытые вопросы удобно разбирать с использованием схем и ссылок на разделы руководств.',source:{document:'FCOM / FCTM',section:'Указать раздел',revision:'ДЕМО',page:'',verified:false}}
-  ]
-};
+const EMPTY_BANK = {schemaVersion:1,title:'Моя база вопросов',operator:'',aircraft:'B737 NG',bankRevision:'',items:[]};
+const EXAMPLE_BANK = {schemaVersion:1,title:'Новый раздел',operator:'',aircraft:'B737 NG',bankRevision:'',items:[
+ {id:'unique-question-001',type:'quiz',topic:'Название раздела',prompt:'Текст вопроса',options:['Вариант 1','Вариант 2'],correctIndices:[0],answer:'Вариант 1',explanation:'Краткое объяснение',source:{document:'Название источника',section:'Раздел',page:'',revision:'',verified:false}}
+]};
 const PACK_KEY='b737_trainer_pack_v1', PROGRESS_KEY='b737_trainer_progress_v1';
 function clone(v){return JSON.parse(JSON.stringify(v));}
 function readStored(key, fallback){try {const d=JSON.parse(localStorage.getItem(key)); return d??clone(fallback);}catch{return clone(fallback);}}
-let pack=readStored(PACK_KEY,DEMO);
+let pack=readStored(PACK_KEY,EMPTY_BANK);
 let progress=readStored(PROGRESS_KEY,{answered:0,correct:0,wrongIds:[],cards:{}});
-if(!validatePack(pack).ok) pack=clone(DEMO);
+if(!validatePack(pack).ok) pack=clone(EMPTY_BANK);
 function save(){localStorage.setItem(PROGRESS_KEY,JSON.stringify(progress));}
 // Only publish a new bank in memory after both writes have succeeded.
 function commitState(nextPack,nextProgress){
@@ -131,10 +121,91 @@ function cardAnswer(known){if(!cards)return;const it=cards.items[cards.index];co
 }
 function stopCards(){cards=null;show('cards-active',false);show('cards-start',true);}
 function selectTab(id){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));document.querySelectorAll('.tab-content').forEach(p=>p.classList.toggle('hidden',p.id!==id));if(id==='library')renderPack();}
-function renderPack(){const n=pack.items.length;const verified=pack.items.filter(q=>q.source?.verified).length;
- $('pack-info').textContent=`${pack.title||'Без названия'} · ${pack.aircraft||'тип не указан'} · Вопросов и карточек: ${n}; отмечено автором банка как сверенные: ${verified}.`;
- const byTopic=new Map();for(const q of pack.items)byTopic.set(q.topic,(byTopic.get(q.topic)||0)+1);
- $('pack-topics').textContent=byTopic.size?[...byTopic].sort((a,b)=>a[0].localeCompare(b[0],'ru')).map(([t,n])=>`${t}: ${n}`).join(' · '):'Банк пока пуст.';
+// A section is a topic inside a source collection; revision changes do not rename it.
+function sourceGroup(item){
+ const label=String(item.bankId || item.source?.document || 'Личный банк').trim();
+ return label || 'Личный банк';
+}
+function sectionKey(item){return JSON.stringify([String(item.topic).trim(),sourceGroup(item)]);}
+function sectionGroups(items=pack.items){
+ const groups=new Map();
+ for(const item of items){
+  const key=sectionKey(item);
+  if(!groups.has(key))groups.set(key,{key,topic:item.topic.trim(),bank:sourceGroup(item),items:[],revisions:new Set()});
+  const group=groups.get(key);group.items.push(item);
+  if(item.source?.revision)group.revisions.add(String(item.source.revision));
+ }
+ return [...groups.values()].sort((a,b)=>a.topic.localeCompare(b.topic,'ru')||a.bank.localeCompare(b.bank,'ru'));
+}
+function sectionSubtitle(group){
+ const count=group.items.length;
+ const version=group.revisions.size===1?' · '+[...group.revisions][0]:group.revisions.size>1?' · несколько редакций':'';
+ return count+' '+ruCount(count,'вопрос','вопроса','вопросов')+' · '+group.bank+version;
+}
+function removeItems(ids,description){
+ const n=ids.size;if(!n)return;
+ if(!confirm('Удалить '+description+'?\n\n'+n+' '+ruCount(n,'вопрос будет удалён','вопроса будут удалены','вопросов будут удалены')+'. Другие разделы и общая статистика сохранятся.'))return;
+ try{
+  const next=normalizePack(pack);
+  next.items=next.items.filter(item=>!ids.has(item.id));
+  const remaining=next.items.map(item=>item.id);
+  const nextProgress=filteredProgress(progress,remaining,new Set());
+  commitState(next,nextProgress);
+  updateAll();
+  $('file-message').className='inline-ok';
+  $('file-message').textContent='Удалено: '+n+'. Остальные вопросы сохранены.';
+ }catch(e){$('file-message').className='inline-err';$('file-message').textContent='Не удалось удалить: '+e.message;}
+}
+function beginSectionUpdate(key){
+ $('import-mode').value='replace-section';
+ renderTargetSelect(key);
+ $('import-panel').scrollIntoView({behavior:'smooth',block:'start'});
+ $('import-file-control').focus();
+}
+function renderTargetSelect(preferred){
+ const select=$('import-target'), current=preferred||select.value;
+ const groups=sectionGroups();clear(select);
+ for(const group of groups)select.append(new Option(group.topic+' — '+group.bank,group.key));
+ if(groups.some(g=>g.key===current))select.value=current;
+ const visible=$('import-mode').value==='replace-section';
+ show('import-target-wrap',visible);
+ if(!groups.length && visible){$('import-mode').value='add';show('import-target-wrap',false);}
+}
+function renderPack(){
+ const n=pack.items.length;
+ $('pack-info').textContent=n+' '+ruCount(n,'вопрос','вопроса','вопросов')+' · '+sectionGroups().length+' '+ruCount(sectionGroups().length,'раздел','раздела','разделов');
+ const list=$('bank-list');clear(list);
+ const groups=sectionGroups();
+ if(!groups.length){
+  const block=el('div',undefined,'empty-library');
+  block.append(el('strong','Пока нет вопросов'),el('p','Добавь первый раздел через JSON-файл.','muted'));
+  list.append(block);
+ }
+ for(const group of groups){
+  const panel=el('div',undefined,'section-entry');
+  const header=el('div',undefined,'section-head');
+  const info=el('div',undefined,'section-info');
+  info.append(el('strong',group.topic),el('span',sectionSubtitle(group),'muted'));
+  const reveal=el('button','Вопросы','secondary mini-button');reveal.type='button';
+  header.append(info,reveal);panel.append(header);
+  const details=el('div',undefined,'section-questions hidden');
+  group.items.forEach((it,index)=>{
+   const line=el('div',undefined,'question-entry');
+   const title=el('span',(index+1)+'. '+it.prompt,'question-title');
+   const remove=el('button','Удалить','text-danger');remove.type='button';
+   remove.addEventListener('click',()=>removeItems(new Set([it.id]),'этот вопрос'));
+   line.append(title,remove);details.append(line);
+  });
+  reveal.addEventListener('click',()=>{const open=details.classList.toggle('hidden');reveal.textContent=open?'Вопросы':'Скрыть';});
+  panel.append(details);
+  const actions=el('div',undefined,'section-actions');
+  const update=el('button','Обновить раздел','secondary mini-button');update.type='button';
+  update.addEventListener('click',()=>beginSectionUpdate(group.key));
+  const remove=el('button','Удалить раздел','text-danger');remove.type='button';
+  remove.addEventListener('click',()=>removeItems(new Set(group.items.map(q=>q.id)),'раздел «'+group.topic+'» ('+group.bank+')'));
+  actions.append(update,remove);panel.append(actions);list.append(panel);
+ }
+ renderTargetSelect();
 }
 function download(name,obj){const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2500);}
 function normalizePack(value){return {schemaVersion:1,title:String(value.title||'Мой банк'),operator:String(value.operator||''),aircraft:String(value.aircraft||'B737 NG'),bankRevision:String(value.bankRevision||''),items:clone(value.items),importHistory:Array.isArray(value.importHistory)?clone(value.importHistory.slice(-50)):[]};}
@@ -152,83 +223,83 @@ function progressFromBackup(value,ids){
  const correct=Math.min(answered,Math.max(0,Math.floor(Number(value.correct)||0)));
  return {answered,correct,wrongIds:[...new Set(Array.isArray(value.wrongIds)?value.wrongIds.filter(x=>typeof x==='string'&&valid.has(x)):[])],cards:Object.fromEntries(Object.entries(value.cards&&typeof value.cards==='object'?value.cards:{}).filter(([k,v])=>valid.has(k)&&v&&typeof v==='object'&&Number.isFinite(v.next)&&Number.isFinite(v.level)).map(([k,v])=>[k,{next:v.next,level:Math.max(0,Math.min(4,Math.floor(v.level)))}]))};
 }
-function planImport(current,incoming,mode,currentProgress){
+function planImport(current,incoming,mode,currentProgress,targetKey=''){
  const next=mode==='replace'?normalizePack(incoming):normalizePack(current);
- const byId=new Map(next.items.map((v,i)=>[v.id,i]));
  const changed=new Set(),counts={added:0,updated:0,unchanged:0,skipped:0,removed:0};
- if(mode==='replace'){
-  const old=new Map(current.items.map(q=>[q.id,q]));
-  const nextIds=new Set(next.items.map(q=>q.id));
-  for(const q of next.items){if(!old.has(q.id))counts.added++;else if(sameItem(old.get(q.id),q))counts.unchanged++;else{counts.updated++;changed.add(q.id);}}
-  for(const q of current.items)if(!nextIds.has(q.id))counts.removed++;
+ const previousById=new Map(current.items.map(q=>[q.id,q]));
+ if(mode==='replace-section'){
+  const selected=sectionGroups(current.items).find(g=>g.key===targetKey);
+  if(!selected)throw Error('Выбери раздел, который нужно обновить.');
+  if(!incoming.items.length)throw Error('В файле нет вопросов. Для удаления раздела используй кнопку «Удалить раздел».');
+  if(incoming.items.some(q=>sectionKey(q)!==targetKey))throw Error('В файле должны быть вопросы только для раздела «'+selected.topic+'» из источника «'+selected.bank+'».');
+  const old=new Map(selected.items.map(q=>[q.id,q]));
+  const keep=next.items.filter(q=>sectionKey(q)!==targetKey);
+  const keptIds=new Set(keep.map(q=>q.id));
+  for(const q of incoming.items){if(keptIds.has(q.id))throw Error('ID вопроса «'+q.id+'» уже используется в другом разделе.');}
+  const received=new Set(incoming.items.map(q=>q.id));
+  for(const q of incoming.items){
+   if(!old.has(q.id))counts.added++;
+   else if(sameItem(old.get(q.id),q))counts.unchanged++;
+   else{counts.updated++;changed.add(q.id);}
+  }
+  for(const q of selected.items)if(!received.has(q.id))counts.removed++;
+  next.items=[...keep,...clone(incoming.items)];
+ }else if(mode==='replace'){
+  const newIds=new Set(next.items.map(q=>q.id));
+  for(const q of next.items){if(!previousById.has(q.id))counts.added++;else if(sameItem(previousById.get(q.id),q))counts.unchanged++;else{counts.updated++;changed.add(q.id);}}
+  for(const q of current.items)if(!newIds.has(q.id))counts.removed++;
  }else{
+  const byId=new Map(next.items.map((v,i)=>[v.id,i]));
   for(const q of incoming.items){
    if(!byId.has(q.id)){byId.set(q.id,next.items.length);next.items.push(clone(q));counts.added++;}
    else if(sameItem(next.items[byId.get(q.id)],q))counts.unchanged++;
    else if(mode==='update'){next.items[byId.get(q.id)]=clone(q);changed.add(q.id);counts.updated++;}
    else counts.skipped++;
   }
-  next.title='Накопительная база B737 NG';next.bankRevision='Сборная: редакции указаны в источниках вопросов';
-  next.importHistory.push({title:String(incoming.title||'Без названия'),revision:String(incoming.bankRevision||''),importedAt:new Date().toISOString(),added:counts.added,updated:counts.updated,skipped:counts.skipped});
+ }
+ if(mode!=='replace'){
+  next.title='Моя база вопросов';
+  next.importHistory.push({title:String(incoming.title||'Без названия'),revision:String(incoming.bankRevision||''),importedAt:new Date().toISOString(),added:counts.added,updated:counts.updated,skipped:counts.skipped,removed:counts.removed});
   next.importHistory=next.importHistory.slice(-50);
  }
  const valid=validatePack(next);if(!valid.ok)throw Error(valid.error);
- const ids=next.items.map(q=>q.id);
- return {next,counts,changed,nextProgress:filteredProgress(currentProgress,ids,changed)};
+ return {next,counts,changed,nextProgress:filteredProgress(currentProgress,next.items.map(q=>q.id),changed)};
 }
-
 function ruCount(n,one,few,many){
  const v=Math.abs(n)%100,last=v%10;
  return v>=11&&v<=14?many:last===1?one:last>=2&&last<=4?few:many;
 }
-function importConfirmation(plan,mode,bankTitle){
+function importConfirmation(plan,mode,bankTitle,targetKey=''){
  const c=plan.counts,total=plan.next.items.length,previous=pack.items.length;
  const dialog=$('import-dialog');
- const heading=mode==='replace'?'Заменить банк вопросов?':mode==='update'?'Обновить банк вопросов?':'Добавить '+c.added+' '+ruCount(c.added,'вопрос','вопроса','вопросов')+'?';
+ const section=mode==='replace-section',replace=mode==='replace',update=mode==='update';
+ const selected=section?sectionGroups().find(g=>g.key===targetKey):null;
+ const heading=section?'Обновить «'+selected.topic+'»?':replace?'Заменить всю базу?':update?'Обновить вопросы?':'Добавить '+c.added+' '+ruCount(c.added,'вопрос','вопроса','вопросов')+'?';
  $('import-dialog-title').textContent=heading;
  $('import-dialog-subtitle').textContent='Из файла «'+String(bankTitle||'Новый банк').slice(0,90)+'»';
  const metrics=$('import-dialog-metrics');clear(metrics);
- function metric(label,value){
-  const box=el('div',undefined,'dialog-metric');
-  box.append(el('span',label,'dialog-metric-label'),el('strong',String(value),'dialog-metric-value'));
-  metrics.append(box);
- }
- metric(mode==='replace'?'Сейчас в базе':'Новых вопросов',mode==='replace'?previous:c.added);
- metric(mode==='replace'?'Будет после замены':'Всего после импорта',total);
+ function metric(label,value){const box=el('div',undefined,'dialog-metric');box.append(el('span',label,'dialog-metric-label'),el('strong',String(value),'dialog-metric-value'));metrics.append(box);}
+ if(section){metric('Сейчас в разделе',selected.items.length);metric('Будет в разделе',selected.items.length+c.added-c.removed);}
+ else{metric(replace?'Сейчас в базе':'Новых вопросов',replace?previous:c.added);metric(replace?'Будет после замены':'Всего после импорта',total);}
  let note='';
- if(mode==='replace'){
-  note='Текущий банк будет заменён содержимым файла. Перед заменой советуем сохранить резервную копию.';
-  if(c.removed)note+=' '+c.removed+' '+ruCount(c.removed,'карточка','карточки','карточек')+' из старого банка '+(c.removed===1?'исчезнет.':'исчезнут.');
- }else if(mode==='update'){
-  note=c.updated+' '+ruCount(c.updated,'вопрос будет обновлён','вопроса будут обновлены','вопросов будут обновлены')+'. Для изменённых вопросов прогресс повторения начнётся заново. Остальная статистика сохранится.';
- }else{
-  note='Все существующие вопросы и твоя статистика останутся без изменений.';
-  const existing=c.unchanged+c.skipped;
-  if(existing)note+=' '+existing+' '+ruCount(existing,'вопрос уже есть','вопроса уже есть','вопросов уже есть')+' в базе — повторно не добавляем.';
- }
+ if(section){
+  note='Остальные разделы сохранятся.';
+  if(c.removed)note+=' '+c.removed+' '+ruCount(c.removed,'старый вопрос будет удалён','старых вопроса будут удалены','старых вопросов будут удалены')+'.';
+  if(c.updated)note+=' Прогресс '+c.updated+' '+ruCount(c.updated,'изменённого вопроса','изменённых вопросов','изменённых вопросов')+' начнётся заново.';
+ }else if(replace){note='Это заменит всю текущую базу. Перед заменой рекомендуем сохранить резервную копию.';}
+ else if(update){note='Изменённые вопросы будут обновлены, а их повторение начнётся заново. Остальная статистика сохранится.';}
+ else{note='Все существующие вопросы и твоя статистика останутся без изменений.';const existing=c.unchanged+c.skipped;if(existing)note+=' '+existing+' '+ruCount(existing,'вопрос уже есть','вопроса уже есть','вопросов уже есть')+' в базе — повторно не добавляем.';}
  $('import-dialog-note').textContent=note;
- $('import-dialog-accept').textContent=mode==='replace'?'Заменить банк':mode==='update'?'Сохранить изменения':'Добавить '+c.added;
+ $('import-dialog-accept').textContent=section?'Обновить раздел':replace?'Заменить базу':update?'Сохранить':'Добавить '+c.added;
  if(typeof dialog.showModal!=='function')return Promise.resolve(confirm(heading+'\n'+note));
  return new Promise(resolve=>{
   let completed=false;
   const yes=$('import-dialog-accept'),no=$('import-dialog-cancel');
-  function finish(accepted){
-   if(completed)return;completed=true;
-   yes.removeEventListener('click',accept);
-   no.removeEventListener('click',cancel);
-   dialog.removeEventListener('close',cancel);
-   if(dialog.open)dialog.close();
-   resolve(accepted);
-  }
-  function accept(){finish(true);}
-  function cancel(){finish(false);}
-  yes.addEventListener('click',accept);
-  no.addEventListener('click',cancel);
-  dialog.addEventListener('close',cancel);
-  dialog.showModal();
+  function finish(accepted){if(completed)return;completed=true;yes.removeEventListener('click',accept);no.removeEventListener('click',cancel);dialog.removeEventListener('close',cancel);if(dialog.open)dialog.close();resolve(accepted);}
+  function accept(){finish(true);}function cancel(){finish(false);}
+  yes.addEventListener('click',accept);no.addEventListener('click',cancel);dialog.addEventListener('close',cancel);dialog.showModal();
  });
 }
-
 async function importFile(file){
  const msg=$('file-message');msg.className='';msg.textContent='';if(!file)return;
  try{
@@ -236,28 +307,21 @@ async function importFile(file){
   const raw=JSON.parse(await file.text()), incoming=raw.pack||raw;
   const valid=validatePack(incoming);if(!valid.ok)throw Error(valid.error);
   const mode=$('import-mode').value;
-  const plan=planImport(pack,incoming,mode,progress),c=plan.counts;
-
-  if(mode!=='replace'&&!c.added&&!c.updated){
+  const targetKey=mode==='replace-section'?$('import-target').value:'';
+  const plan=planImport(pack,incoming,mode,progress,targetKey),c=plan.counts;
+  if(mode!=='replace'&&!c.added&&!c.updated&&!c.removed){
    msg.className='inline-ok';
-   msg.textContent=c.skipped?'Новых вопросов нет. '+c.skipped+' '+ruCount(c.skipped,'вопрос отличается','вопроса отличаются','вопросов отличаются')+' от уже сохранённых. Чтобы применить изменения, выбери «Добавить и обновить вопросы».':'Все вопросы из файла уже есть в твоей базе. Ничего менять не нужно.';
+   msg.textContent=c.skipped?`Новых вопросов нет. ${c.skipped} ${ruCount(c.skipped,'вопрос отличается','вопроса отличаются','вопросов отличаются')} от уже сохранённых. Чтобы применить изменения, выбери «Добавить и обновить вопросы».`:'Все вопросы из файла уже есть в твоей базе. Ничего менять не нужно.';
    return;
   }
-  if(!await importConfirmation(plan,mode,incoming.title))return;
+  if(!await importConfirmation(plan,mode,incoming.title,targetKey))return;
   let nextProgress=plan.nextProgress;
   if(mode==='replace'&&raw.pack&&raw.progress&&typeof raw.progress==='object'&&confirm('Это резервная копия с прогрессом. Восстановить статистику ИЗ ФАЙЛА вместо текущей?'))nextProgress=progressFromBackup(raw.progress,plan.next.items.map(q=>q.id));
   commitState(plan.next,nextProgress);
   updateAll();msg.className='inline-ok';
-  msg.textContent=mode==='replace'?'Готово! Теперь в базе '+pack.items.length+' вопросов и карточек.':'Готово! Добавлено '+c.added+' новых, обновлено '+c.updated+'. Всего в базе '+pack.items.length+'.';
+  msg.textContent=mode==='replace'?'База восстановлена. Всего вопросов: '+pack.items.length+'.':mode==='replace-section'?'Раздел обновлён. Всего вопросов: '+pack.items.length+'.':'Готово! Новых: '+c.added+', обновлено: '+c.updated+'. Всего в базе: '+pack.items.length+'.';
  }catch(e){msg.className='inline-err';msg.textContent='Ошибка импорта: '+e.message;}
  finally{$('import-file').value='';}
-}
-function removeDemo(){
- const ids=new Set(pack.items.filter(q=>q.id.startsWith('demo-')&&q.source?.revision==='ДЕМО').map(q=>q.id));
- if(!ids.size){$('file-message').textContent='Демонстрационных карточек нет.';return;}
- if(!confirm(`Удалить ${ids.size} демонстрационных карточек? Остальные вопросы и статистика сохранятся.`))return;
- try{const next=normalizePack(pack);next.items=next.items.filter(q=>!ids.has(q.id));const p=filteredProgress(progress,next.items.map(q=>q.id),new Set());commitState(next,p);updateAll();$('file-message').className='inline-ok';$('file-message').textContent=`Удалено демонстрационных карточек: ${ids.size}.`;}
- catch(e){$('file-message').className='inline-err';$('file-message').textContent=e.message;}
 }
 function updateAll(){fillSelect('quiz-topic');fillSelect('card-topic');renderStats();renderPack();quizReset();stopCards();}
 function boot(){
@@ -265,10 +329,9 @@ function boot(){
  $('start-quiz').addEventListener('click',quizStart);$('check-answer').addEventListener('click',quizCheck);$('next-question').addEventListener('click',quizNext);$('stop-quiz').addEventListener('click',quizFinish);$('restart-quiz').addEventListener('click',quizReset);
  $('start-cards').addEventListener('click',cardsStart);$('reveal-card').addEventListener('click',()=>{cards.revealed=true;renderCard();});$('again-card').addEventListener('click',()=>cardAnswer(false));$('know-card').addEventListener('click',()=>cardAnswer(true));$('stop-cards').addEventListener('click',stopCards);
  $('import-file').addEventListener('change',e=>importFile(e.target.files[0]));
- $('remove-demo').addEventListener('click',removeDemo);
  $('export-backup').addEventListener('click',()=>download('b737-trainer-backup.json',{pack,progress,exportedAt:new Date().toISOString()}));
- $('export-template').addEventListener('click',()=>download('b737-trainer-example-bank.json',DEMO));
- $('reset-demo').addEventListener('click',()=>{if(confirm('ПОЛНОСТЬЮ заменить базу и обнулить статистику? Сначала экспортируй резервную копию.')){try{commitState(clone(DEMO),{answered:0,correct:0,wrongIds:[],cards:{}});updateAll();$('file-message').textContent='Восстановлена демонстрационная база.';}catch(e){$('file-message').textContent=e.message;}}});
+ $('export-template').addEventListener('click',()=>download('b737-trainer-json-example.json',EXAMPLE_BANK));
+ $('import-mode').addEventListener('change',()=>renderTargetSelect());
  updateAll();selectTab('quiz');
  const conn=$('connection'); const syncConn=()=>conn.textContent=navigator.onLine?'◉ Режим сети':'✓ Офлайн';window.addEventListener('online',syncConn);window.addEventListener('offline',syncConn);syncConn();
  if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))navigator.serviceWorker.register('./sw.js').catch(e=>{console.warn('Service worker registration failed',e);});
