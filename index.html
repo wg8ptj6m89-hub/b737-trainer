@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="737 Trainer">
-  <meta name="description" content="Автономный тренажёр: системы, memory items, limitations и интервью. Учебный прототип.">
+  <meta name="description" content="Автономный тренажёр: системы, memory items, limitations и интервью. Учебное приложение.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icon-192.png">
   <title>737 NG — Offline Trainer</title>
@@ -50,13 +50,27 @@
     .dialog-metric-value{font-size:26px;font-weight:800;line-height:1.1;color:var(--navy)}
     .dialog-note{font-size:13px;line-height:1.6;color:#495c75;margin:0 0 20px}
     .dialog-actions{display:flex;gap:10px}.dialog-actions button{flex:1;min-width:0;min-height:48px;border-radius:13px}
+
+    .safe-note{font-size:11px;color:#586a82;text-align:center;padding:2px 5px 12px}
+    .section-entry{border:1px solid var(--line);border-radius:14px;padding:13px;margin-top:12px}
+    .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .section-info{min-width:0;display:flex;flex-direction:column;gap:5px}.section-info strong{font-size:16px}.section-info .muted{font-size:12px;overflow-wrap:anywhere}
+    .mini-button{font-size:12px;padding:9px 12px;border-radius:10px;white-space:nowrap}
+    .section-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #edf0f6;margin-top:11px;padding-top:10px}
+    .section-questions{max-height:320px;overflow:auto;border-top:1px solid #edf0f6;margin-top:12px;padding-top:4px}
+    .question-entry{display:flex;align-items:center;gap:12px;justify-content:space-between;border-bottom:1px solid #edf0f6;padding:11px 1px}
+    .question-entry:last-child{border-bottom:0}.question-title{font-size:13px;line-height:1.4;overflow-wrap:anywhere;min-width:0}
+    .text-danger{border:0;background:transparent;color:#a52f43;font-size:12px;font-weight:650;padding:9px 0;white-space:nowrap}
+    .empty-library{text-align:center;background:#f7f9fc;border-radius:14px;padding:24px 15px;margin-top:10px}
+    .empty-library p{margin:7px 0 0}.help-details{margin-top:18px;border-top:1px solid var(--line);padding-top:16px;color:#64758c;font-size:12px;line-height:1.55}
+    .help-details summary{cursor:pointer;color:#36547b;font-size:13px;font-weight:650}.help-details p{margin:11px 0}.help-details button{margin-top:9px}
     @media(min-width:700px){main{padding-top:26px}.card{padding:23px}.grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
   </style>
 </head>
 <body>
 <header class="top"><div class="top-inner"><div><div class="brand">737 NG · Offline Trainer</div><div class="tagline">Systems · Memory Items · Limitations · Interview</div></div><div class="state" id="connection">Проверка…</div></div></header>
 <main>
- <div class="notice">УЧЕБНЫЙ ПРОТОТИП. Демонстрационные вопросы не являются эксплуатационными указаниями. Для действительных процедур и ограничений используйте актуальные утверждённые документы своего оператора.</div>
+ <div class="safe-note">Учебный тренажёр · не заменяет действующие руководства и процедуры</div>
  <nav class="tabs" aria-label="Разделы"><button class="tab active" data-tab="quiz">Тесты</button><button class="tab" data-tab="cards">Карточки</button><button class="tab" data-tab="library">База / резерв</button></nav>
  <section id="quiz" class="tab-content">
   <div id="quiz-start" class="card">
@@ -77,15 +91,38 @@
   <div id="cards-active" class="card hidden"><div class="muted" id="card-count"></div><div id="card-content"></div><div class="actions"><button class="primary" id="reveal-card">Показать ответ</button><button class="secondary hidden" id="again-card">Повторить</button><button class="primary hidden" id="know-card">Знаю</button><button class="secondary" id="stop-cards">Закончить</button></div></div>
  </section>
  <section id="library" class="tab-content hidden">
-  <div class="card"><h1>Банк вопросов</h1><p id="pack-info" class="muted"></p><p id="pack-topics" class="fine"></p><p class="fine">JSON обрабатывается только на устройстве и не отправляется на сервер. По умолчанию новые вопросы добавляются к текущему банку, совпадающие ID не перезаписываются. Перед крупными изменениями экспортируй резервную копию.</p>
-   <div class="control"><label for="import-mode">Что сделать с вопросами?</label><select id="import-mode"><option value="add">Добавить новые</option><option value="update">Добавить новые и обновить существующие</option><option value="replace">Заменить весь банк</option></select></div>
-   <p class="fine">По умолчанию приложение добавляет только новые вопросы. Уже сохранённые карточки, твои ответы и прогресс не затрагиваются.</p>
-   <label class="filelabel">Импортировать JSON <input type="file" accept=".json,application/json" id="import-file"></label>
-   <div id="file-message" role="status"></div>
-   <div class="actions"><button class="secondary" id="export-backup">Экспорт банка и прогресса</button><button class="secondary" id="export-template">Шаблон банка</button></div>
+  <div class="card">
+   <h1>Мои вопросы</h1>
+   <p id="pack-info" class="muted"></p>
+   <div id="bank-list"></div>
   </div>
-  <div class="card"><h2>Контроль источников</h2><p class="fine">Для каждого вопроса сохраняй: документ (FCOM / FCTM / QRH), раздел, страницу или пункт, номер редакции/дату, статус сверки и, при необходимости, конфигурацию самолёта. Маркер «сверено» отражает утверждение автора банка, а не проверку со стороны приложения.</p><p class="fine">Не включай служебные материалы в публичный репозиторий. Храни рабочие JSON-файлы и резервные копии там, где это разрешают правила компании.</p><div class="actions"><button class="secondary" id="remove-demo">Удалить демо-карточки</button><button class="secondary danger" id="reset-demo">Сбросить ВСЁ к демо</button></div></div>
-  <div class="card"><h2>Что сохраняется</h2><p class="fine">База, результаты тестов и интервалы повторения хранятся на устройстве в памяти веб-приложения. В iOS эти данные могут пропасть при удалении приложения, очистке данных сайтов или освобождении места системой. Экспортируй резервную копию после крупных изменений.</p></div>
+  <div class="card" id="import-panel">
+   <h2>Добавить вопросы</h2>
+   <div class="control"><label for="import-mode">Действие</label>
+    <select id="import-mode">
+     <option value="add">Добавить новые</option>
+     <option value="update">Добавить и исправить существующие</option>
+     <option value="replace-section">Заменить отдельный раздел</option>
+     <option value="replace">Восстановить базу из копии</option>
+    </select>
+   </div>
+   <div class="control hidden" id="import-target-wrap"><label for="import-target">Какой раздел заменить?</label><select id="import-target"></select></div>
+   <label id="import-file-control" class="filelabel" tabindex="-1">Выбрать JSON-файл <input type="file" accept=".json,application/json" id="import-file"></label>
+   <div id="file-message" role="status" aria-live="polite"></div>
+  </div>
+  <div class="card">
+   <h2>Резервная копия</h2>
+   <p class="muted">Сохрани вопросы и прогресс на случай смены телефона.</p>
+   <div class="actions"><button class="secondary" id="export-backup">Сохранить копию</button></div>
+   <details class="help-details">
+    <summary>Справка и дополнительные настройки</summary>
+    <p>Вопросы и результаты хранятся на этом устройстве. При удалении приложения или очистке его данных они могут исчезнуть. Перед крупными изменениями сохраняй копию.</p>
+    <p>«Добавить» сохраняет существующие вопросы. «Исправить» обновляет карточки с теми же идентификаторами. «Заменить раздел» удаляет прежнюю версию выбранного раздела и загружает новую.</p>
+    <p>При замене раздела JSON должен содержать вопросы только по этому разделу и источнику. Источник и тема должны совпадать; редакция может отличаться.</p>
+    <p>Импорт выполняется на телефоне без отправки файлов на сервер. Служебные руководства и закрытые вопросы нельзя публиковать в открытом GitHub без разрешения правообладателя.</p>
+    <button class="secondary" id="export-template" type="button">Скачать пример JSON</button>
+   </details>
+  </div>
  </section>
 </main>
 <dialog id="import-dialog" class="import-dialog" aria-labelledby="import-dialog-title" aria-describedby="import-dialog-note">
