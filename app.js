@@ -76,13 +76,14 @@ function sourceSection(src){
 }
 function localReview(it){return progress.reviews?.[it.id]||null;}
 function reviewSummary(it){
- const r=localReview(it);
- if(r?.status==='current')return 'Моя проверка: действующая редакция '+r.revision+'; дата '+r.checkedAt+'.';
- if(r?.status==='source')return 'Моя проверка по документу '+r.revision+'; дата '+r.checkedAt+'. Актуальность нужно уточнять отдельно.';
- return it.source?.verified?'Автор банка отметил сверку с предоставленным PDF. Актуальность не подтверждена.':'Сверка с источником не отмечена.';
+ const mine=localReview(it);
+ if(mine?.status==='source'||mine?.status==='current')return 'Дополнительно сверено мной по '+mine.revision+' ('+mine.checkedAt+').';
+ const audit=it.source?.audit;
+ if(audit?.status==='checked_against_supplied_document')return 'Сверено с загруженным FCOM ('+audit.checkedOn+'). Это не отдельное подтверждение действующей редакции.';
+ return it.source?.verified
+  ?'Автор банка отметил сверку с указанным документом; повторная проверка не зафиксирована.'
+  :'Сверка с источником не отмечена.';
 }
-
-
 function learningCore(it){
  return JSON.stringify(canonical({type:it.type,prompt:it.prompt,options:it.options||null,correctIndices:it.correctIndices||null,answer:it.answer}));
 }
@@ -95,7 +96,7 @@ function reviewDialog(it){
  const dialog=$('review-dialog'),current=localReview(it);
  $('review-dialog-title').textContent='Проверка вопроса';
  $('review-question').textContent=translated(it).prompt;
- $('review-status').value=current?.status||'none';
+ $('review-status').value=(current?.status==='source'||current?.status==='current')?'source':'none';
  $('review-revision').value=current?.revision||String(it.source?.revision||'').replace(/\s*\(historical;.*$/i,'').slice(0,100);
  $('review-date').value=current?.checkedAt||'';
  $('review-note').value=current?.note||'';
