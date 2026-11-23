@@ -176,6 +176,59 @@ function planImport(current,incoming,mode,currentProgress){
  const ids=next.items.map(q=>q.id);
  return {next,counts,changed,nextProgress:filteredProgress(currentProgress,ids,changed)};
 }
+
+function ruCount(n,one,few,many){
+ const v=Math.abs(n)%100,last=v%10;
+ return v>=11&&v<=14?many:last===1?one:last>=2&&last<=4?few:many;
+}
+function importConfirmation(plan,mode,bankTitle){
+ const c=plan.counts,total=plan.next.items.length,previous=pack.items.length;
+ const dialog=$('import-dialog');
+ const heading=mode==='replace'?'Заменить банк вопросов?':mode==='update'?'Обновить банк вопросов?':'Добавить '+c.added+' '+ruCount(c.added,'вопрос','вопроса','вопросов')+'?';
+ $('import-dialog-title').textContent=heading;
+ $('import-dialog-subtitle').textContent='Из файла «'+String(bankTitle||'Новый банк').slice(0,90)+'»';
+ const metrics=$('import-dialog-metrics');clear(metrics);
+ function metric(label,value){
+  const box=el('div',undefined,'dialog-metric');
+  box.append(el('span',label,'dialog-metric-label'),el('strong',String(value),'dialog-metric-value'));
+  metrics.append(box);
+ }
+ metric(mode==='replace'?'Сейчас в базе':'Новых вопросов',mode==='replace'?previous:c.added);
+ metric(mode==='replace'?'Будет после замены':'Всего после импорта',total);
+ let note='';
+ if(mode==='replace'){
+  note='Текущий банк будет заменён содержимым файла. Перед заменой советуем сохранить резервную копию.';
+  if(c.removed)note+=' '+c.removed+' '+ruCount(c.removed,'карточка','карточки','карточек')+' из старого банка '+(c.removed===1?'исчезнет.':'исчезнут.');
+ }else if(mode==='update'){
+  note=c.updated+' '+ruCount(c.updated,'вопрос будет обновлён','вопроса будут обновлены','вопросов будут обновлены')+'. Для изменённых вопросов прогресс повторения начнётся заново. Остальная статистика сохранится.';
+ }else{
+  note='Все существующие вопросы и твоя статистика останутся без изменений.';
+  const existing=c.unchanged+c.skipped;
+  if(existing)note+=' '+existing+' '+ruCount(existing,'вопрос уже есть','вопроса уже есть','вопросов уже есть')+' в базе — повторно не добавляем.';
+ }
+ $('import-dialog-note').textContent=note;
+ $('import-dialog-accept').textContent=mode==='replace'?'Заменить банк':mode==='update'?'Сохранить изменения':'Добавить '+c.added;
+ if(typeof dialog.showModal!=='function')return Promise.resolve(confirm(heading+'\n'+note));
+ return new Promise(resolve=>{
+  let completed=false;
+  const yes=$('import-dialog-accept'),no=$('import-dialog-cancel');
+  function finish(accepted){
+   if(completed)return;completed=true;
+   yes.removeEventListener('click',accept);
+   no.removeEventListener('click',cancel);
+   dialog.removeEventListener('close',cancel);
+   if(dialog.open)dialog.close();
+   resolve(accepted);
+  }
+  function accept(){finish(true);}
+  function cancel(){finish(false);}
+  yes.addEventListener('click',accept);
+  no.addEventListener('click',cancel);
+  dialog.addEventListener('close',cancel);
+  dialog.showModal();
+ });
+}
+
 async function importFile(file){
  const msg=$('file-message');msg.className='';msg.textContent='';if(!file)return;
  try{
@@ -184,17 +237,18 @@ async function importFile(file){
   const valid=validatePack(incoming);if(!valid.ok)throw Error(valid.error);
   const mode=$('import-mode').value;
   const plan=planImport(pack,incoming,mode,progress),c=plan.counts;
+
   if(mode!=='replace'&&!c.added&&!c.updated){
-   msg.className='inline-ok';msg.textContent=`Изменений нет. Совпадающих без изменений: ${c.unchanged}; конфликтов с другими данными: ${c.skipped}. Для обновления существующих ID выбери соответствующий режим.`;return;
+   msg.className='inline-ok';
+   msg.textContent=c.skipped?'Новых вопросов нет. '+c.skipped+' '+ruCount(c.skipped,'вопрос отличается','вопроса отличаются','вопросов отличаются')+' от уже сохранённых. Чтобы применить изменения, выбери «Добавить и обновить вопросы».':'Все вопросы из файла уже есть в твоей базе. Ничего менять не нужно.';
+   return;
   }
-  const confirmation=`Режим: ${mode==='add'?'только новые ID':mode==='update'?'добавить и обновить ID':'полная замена'}.
-Добавить: ${c.added}; обновить: ${c.updated}; уже совпадают: ${c.unchanged}; пропустить конфликты: ${c.skipped}; удалить: ${c.removed}.
-${c.updated?'Прогресс изменённых карточек будет сброшен; общая статистика сохранится.\n':''}Продолжить? Перед крупным импортом рекомендуется экспорт резервной копии.`;
-  if(!confirm(confirmation))return;
+  if(!await importConfirmation(plan,mode,incoming.title))return;
   let nextProgress=plan.nextProgress;
   if(mode==='replace'&&raw.pack&&raw.progress&&typeof raw.progress==='object'&&confirm('Это резервная копия с прогрессом. Восстановить статистику ИЗ ФАЙЛА вместо текущей?'))nextProgress=progressFromBackup(raw.progress,plan.next.items.map(q=>q.id));
   commitState(plan.next,nextProgress);
-  updateAll();msg.className='inline-ok';msg.textContent=`Готово. Добавлено: ${c.added}, обновлено: ${c.updated}, пропущено: ${c.skipped}, удалено: ${c.removed}. Всего: ${pack.items.length}.`;
+  updateAll();msg.className='inline-ok';
+  msg.textContent=mode==='replace'?'Готово! Теперь в базе '+pack.items.length+' вопросов и карточек.':'Готово! Добавлено '+c.added+' новых, обновлено '+c.updated+'. Всего в базе '+pack.items.length+'.';
  }catch(e){msg.className='inline-err';msg.textContent='Ошибка импорта: '+e.message;}
  finally{$('import-file').value='';}
 }
