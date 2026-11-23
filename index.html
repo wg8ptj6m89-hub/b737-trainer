@@ -75,6 +75,10 @@
     .empty-library p{margin:7px 0 0}.help-details{margin-top:18px;border-top:1px solid var(--line);padding-top:16px;color:#64758c;font-size:12px;line-height:1.55}
     .help-details summary{cursor:pointer;color:#36547b;font-size:13px;font-weight:650}.help-details p{margin:11px 0}.help-details button{margin-top:9px}
     @media(min-width:700px){main{padding-top:26px}.card{padding:23px}.grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+    .delete-action{background:#b42334;color:#fff;border:0;padding:12px 16px;font-weight:750}
+    .delete-dialog .dialog-subtitle{margin:6px 0 16px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;line-height:1.5;overflow-wrap:anywhere}
+    .delete-dialog .dialog-note{margin:6px 0 22px}
+    .delete-dialog .dialog-actions button{min-height:48px}
   </style>
 </head>
 <body>
@@ -142,6 +146,18 @@
   <div id="import-dialog-update-wrap" class="dialog-checkbox-wrap hidden"><label class="dialog-checkbox"><input type="checkbox" id="import-dialog-update" checked><span>Применить исправления к существующим вопросам</span></label></div>
   <p id="import-dialog-note" class="dialog-note"></p>
   <div class="dialog-actions"><button type="button" class="secondary" id="import-dialog-cancel">Отмена</button><button type="button" class="primary" id="import-dialog-accept">Добавить</button></div>
+ </div>
+</dialog>
+<dialog id="delete-dialog" class="import-dialog delete-dialog" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-note">
+ <div class="dialog-body">
+  <div class="dialog-eyebrow">Подтверждение</div>
+  <h2 id="delete-dialog-title">Удалить вопрос?</h2>
+  <p id="delete-dialog-subtitle" class="dialog-subtitle"></p>
+  <p id="delete-dialog-note" class="dialog-note"></p>
+  <div class="dialog-actions">
+   <button type="button" class="secondary" id="delete-dialog-cancel">Оставить</button>
+   <button type="button" class="delete-action" id="delete-dialog-accept">Удалить</button>
+  </div>
  </div>
 </dialog>
 <script src="app.js" defer></script>
