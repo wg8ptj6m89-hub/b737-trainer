@@ -90,6 +90,14 @@
     .source-summary::-webkit-details-marker{display:none}
     .source-more{color:#2d60bb;font-weight:650;white-space:nowrap}
     .source-extra{margin-top:10px;border-radius:10px;background:#f4f7fc;padding:12px;display:grid;gap:7px}
+
+    .question-actions{display:flex;gap:9px;align-items:center;flex-shrink:0}
+    .review-small{padding:7px 10px;font-size:12px;border-radius:8px}
+    .review-dialog .control{margin-top:12px}
+    .review-dialog textarea,.review-dialog input,.review-dialog select{font:inherit;font-size:14px;width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;background:white}
+    .review-dialog textarea{resize:vertical;min-height:60px}
+    .review-dialog .dialog-body{max-height:82dvh;overflow-y:auto}
+    @media(max-width:420px){.question-entry{align-items:flex-start;flex-direction:column}.question-actions{align-self:flex-end}}
   </style>
 </head>
 <body>
@@ -171,6 +179,21 @@
    <button type="button" class="secondary" id="delete-dialog-cancel">Оставить</button>
    <button type="button" class="delete-action" id="delete-dialog-accept">Удалить</button>
   </div>
+ </div>
+</dialog>
+<dialog id="review-dialog" class="import-dialog review-dialog" aria-labelledby="review-dialog-title">
+ <div class="dialog-body">
+  <div class="dialog-eyebrow">Личная проверка</div>
+  <h2 id="review-dialog-title">Проверка вопроса</h2>
+  <p id="review-question" class="dialog-subtitle"></p>
+  <div class="control"><label for="review-status">Статус</label>
+   <select id="review-status"><option value="none">Ещё не проверял</option><option value="source">Сверил с указанным источником</option><option value="current">Сверил с действующей редакцией</option></select></div>
+  <div class="control"><label for="review-revision">Редакция документа</label><input id="review-revision" type="text" placeholder="Например, FCOM Rev 16"></div>
+  <div class="control"><label for="review-date">Дата сверки</label><input id="review-date" type="date"></div>
+  <div class="control"><label for="review-note">Примечание (необязательно)</label><textarea id="review-note" rows="2" placeholder="Что именно проверено"></textarea></div>
+  <p class="fine">Это личная отметка. Приложение не проверяет документы автоматически.</p>
+  <p id="review-error" class="inline-err" role="status"></p>
+  <div class="dialog-actions"><button type="button" class="secondary" id="review-cancel">Отмена</button><button type="button" class="primary" id="review-save">Сохранить</button></div>
  </div>
 </dialog>
 <script src="app.js" defer></script>
