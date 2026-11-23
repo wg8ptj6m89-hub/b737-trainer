@@ -38,6 +38,18 @@
     .inline-err{color:var(--red);font-size:13px;margin:10px 0}.inline-ok{color:var(--green);font-size:13px;margin:10px 0}
     .filelabel{display:inline-block;padding:12px 15px;border-radius:12px;background:#eaf1ff;color:#24509e;font-weight:700;cursor:pointer;font-size:13px}
     .filelabel input{display:none}.fine{font-size:12px;color:var(--sub);line-height:1.6}code{font-size:12px;background:#eef3fa;padding:2px 4px;border-radius:4px}
+    .import-dialog{border:0;border-radius:22px;padding:0;width:calc(100% - 32px);max-width:430px;max-height:85dvh;background:#fff;color:#1a2942;box-shadow:0 24px 70px rgba(11,28,53,.28)}
+    .import-dialog::backdrop{background:rgba(12,25,44,.52)}
+    .dialog-body{padding:23px 21px 21px;overflow:auto}
+    .dialog-eyebrow{font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#5274af;margin-bottom:10px}
+    .dialog-body h2{font-size:22px;line-height:1.25;margin:0 0 8px}
+    .dialog-subtitle{font-size:13px;color:var(--sub);line-height:1.45;overflow-wrap:anywhere}
+    .dialog-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:20px 0}
+    .dialog-metric{background:#f1f5fb;border-radius:14px;padding:14px 13px;display:flex;flex-direction:column;gap:5px}
+    .dialog-metric-label{font-size:12px;color:#586a82;line-height:1.3}
+    .dialog-metric-value{font-size:26px;font-weight:800;line-height:1.1;color:var(--navy)}
+    .dialog-note{font-size:13px;line-height:1.6;color:#495c75;margin:0 0 20px}
+    .dialog-actions{display:flex;gap:10px}.dialog-actions button{flex:1;min-width:0;min-height:48px;border-radius:13px}
     @media(min-width:700px){main{padding-top:26px}.card{padding:23px}.grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
   </style>
 </head>
@@ -66,8 +78,8 @@
  </section>
  <section id="library" class="tab-content hidden">
   <div class="card"><h1>Банк вопросов</h1><p id="pack-info" class="muted"></p><p id="pack-topics" class="fine"></p><p class="fine">JSON обрабатывается только на устройстве и не отправляется на сервер. По умолчанию новые вопросы добавляются к текущему банку, совпадающие ID не перезаписываются. Перед крупными изменениями экспортируй резервную копию.</p>
-   <div class="control"><label for="import-mode">Как импортировать банк</label><select id="import-mode"><option value="add">Добавить только новые вопросы (безопасно)</option><option value="update">Добавить и обновить совпадающие ID</option><option value="replace">Полностью заменить банк / восстановить копию</option></select></div>
-   <p class="fine">Один и тот же <code>id</code> означает один и тот же вопрос. В режиме добавления конфликты пропускаются; в режиме обновления заменяются, а повторение изменённых вопросов сбрасывается. Общая статистика остаётся исторической.</p>
+   <div class="control"><label for="import-mode">Что сделать с вопросами?</label><select id="import-mode"><option value="add">Добавить новые</option><option value="update">Добавить новые и обновить существующие</option><option value="replace">Заменить весь банк</option></select></div>
+   <p class="fine">По умолчанию приложение добавляет только новые вопросы. Уже сохранённые карточки, твои ответы и прогресс не затрагиваются.</p>
    <label class="filelabel">Импортировать JSON <input type="file" accept=".json,application/json" id="import-file"></label>
    <div id="file-message" role="status"></div>
    <div class="actions"><button class="secondary" id="export-backup">Экспорт банка и прогресса</button><button class="secondary" id="export-template">Шаблон банка</button></div>
@@ -76,6 +88,16 @@
   <div class="card"><h2>Что сохраняется</h2><p class="fine">База, результаты тестов и интервалы повторения хранятся на устройстве в памяти веб-приложения. В iOS эти данные могут пропасть при удалении приложения, очистке данных сайтов или освобождении места системой. Экспортируй резервную копию после крупных изменений.</p></div>
  </section>
 </main>
+<dialog id="import-dialog" class="import-dialog" aria-labelledby="import-dialog-title" aria-describedby="import-dialog-note">
+ <div class="dialog-body">
+  <div class="dialog-eyebrow">Импорт вопросов</div>
+  <h2 id="import-dialog-title">Добавить вопросы?</h2>
+  <div id="import-dialog-subtitle" class="dialog-subtitle"></div>
+  <div id="import-dialog-metrics" class="dialog-metrics"></div>
+  <p id="import-dialog-note" class="dialog-note"></p>
+  <div class="dialog-actions"><button type="button" class="secondary" id="import-dialog-cancel">Отмена</button><button type="button" class="primary" id="import-dialog-accept">Добавить</button></div>
+ </div>
+</dialog>
 <script src="app.js" defer></script>
 </body>
 </html>
