@@ -135,13 +135,40 @@ function itemHeading(it){const c=el('div');c.append(el('span',classify(it),'pill
 function topics(){return [...new Set(pack.items.map(q=>q.topic))].sort((a,b)=>a.localeCompare(b,'ru'));}
 function fillSelect(id){const s=$(id), current=s.value;clear(s);s.append(new Option('Все темы','all'));topics().forEach(x=>s.append(new Option(x,x)));if([...s.options].some(x=>x.value===current))s.value=current;}
 function renderStats(){const c=$('stats');clear(c);[[pack.items.length,'Карточек в банке'],[progress.answered,'Ответов'],[progress.answered?Math.round(progress.correct/progress.answered*100)+'%':'—','Точность'],[progress.wrongIds.length,'Ошибок к повтору']].forEach(([num,label])=>{const box=el('div',undefined,'stat');box.append(el('div',String(num),'num'),el('div',label,'lbl'));c.append(box);});}
+
+const previousOptionOrders=new Map();
+function shuffledIndices(count,previous){
+ const order=Array.from({length:count},(_,i)=>i);
+ for(let i=order.length-1;i>0;i--){
+  const j=Math.floor(Math.random()*(i+1));
+  [order[i],order[j]]=[order[j],order[i]];
+ }
+ if(count>1&&Array.isArray(previous)&&previous.length===count&&order.every((v,i)=>v===previous[i])){
+  [order[0],order[1]]=[order[1],order[0]];
+ }
+ return order;
+}
+function optionOrderFor(it,count){
+ const order=shuffledIndices(count,previousOptionOrders.get(it.id));
+ previousOptionOrders.set(it.id,order.slice());
+ return order;
+}
+function shuffleItems(items){
+ const shuffled=items.slice();
+ for(let i=shuffled.length-1;i>0;i--){
+  const j=Math.floor(Math.random()*(i+1));
+  [shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];
+ }
+ return shuffled;
+}
+
 let session=null;
 function quizStart(){
  const topic=$('quiz-topic').value,set=$('quiz-set').value;
  let items=pack.items.filter(q=>q.type==='quiz'&&(topic==='all'||q.topic===topic));
  if(set==='wrong')items=items.filter(q=>progress.wrongIds.includes(q.id));
  if(!items.length){alert('По выбранным условиям нет вопросов с вариантами ответа. Для Memory Items и Limitations используй «Карточки».');return;}
- items=items.slice().sort(()=>Math.random()-.5);
+ items=shuffleItems(items);
  session={items,index:0,selected:[],checked:false,correct:0};
  show('quiz-start',false);show('quiz-finish',false);show('quiz-active',true);renderQuestion();
 }
@@ -150,14 +177,15 @@ function renderQuestion(){
  $('question-meta').textContent=`Вопрос ${session.index+1} из ${session.items.length}`;
  $('quiz-progress').style.width=`${(session.index)/session.items.length*100}%`;
  const display=translated(it);b.append(itemHeading(it),el('div',display.prompt,'qtext'));
- display.options.forEach((option,i)=>{
-  const btn=el('button',undefined,'choice');btn.type='button';btn.dataset.index=i;
-  btn.append(el('span',String.fromCharCode(65+i),'letter'),el('span',option));
+ optionOrderFor(it,display.options.length).forEach((originalIndex,position)=>{
+  const option=display.options[originalIndex];
+  const btn=el('button',undefined,'choice');btn.type='button';btn.dataset.index=originalIndex;
+  btn.append(el('span',String.fromCharCode(65+position),'letter'),el('span',option));
   btn.addEventListener('click',()=>{
    if(session.checked)return;
-   if(it.correctIndices.length===1) session.selected=[i];
-   else if(session.selected.includes(i))session.selected=session.selected.filter(x=>x!==i);
-   else session.selected.push(i);
+   if(it.correctIndices.length===1) session.selected=[originalIndex];
+   else if(session.selected.includes(originalIndex))session.selected=session.selected.filter(x=>x!==originalIndex);
+   else session.selected.push(originalIndex);
    [...b.querySelectorAll('.choice')].forEach(c=>c.classList.toggle('selected',session.selected.includes(Number(c.dataset.index))));
   });b.append(btn);
  });
