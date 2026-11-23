@@ -44,13 +44,58 @@ function validatePack(value){
  }
  return {ok:true};
 }
-function sourceNode(it){
- const src=it.source||{}; const c=el('div',undefined,'source');
- const revision=src.revision||'не указана';
- c.textContent=`Источник: ${src.document||'не указан'} · ${src.section||'раздел не указан'}\nРедакция: ${revision}${src.page?' · Стр./пункт: '+src.page:''}\nСверено автором банка: ${src.verified?'да (требует самостоятельной проверки)':'нет'}`;
- return c;
+
+const LANGUAGE_KEY='b737_trainer_lang_v1';
+let questionLang='ru';
+try{if(localStorage.getItem(LANGUAGE_KEY)==='en')questionLang='en';}catch(_ignored){}
+function translated(it){
+ const en=questionLang==='en'?it.translations?.en:null;
+ const valid=en&&typeof en.prompt==='string'&&en.prompt.trim()&&
+ (it.type!=='quiz'||Array.isArray(en.options)&&en.options.length===it.options.length&&en.options.every(v=>typeof v==='string'));
+ return valid?{prompt:en.prompt,options:en.options||it.options,answer:en.answer||it.answer,explanation:en.explanation||it.explanation}:
+ {prompt:it.prompt,options:it.options,answer:it.answer,explanation:it.explanation};
 }
-function itemHeading(it){const c=el('div');c.append(el('span',classify(it),'pill'));c.append(el('span',it.topic,'pill'));if(!it.source?.verified)c.append(el('span','Не сверено','pill unverified'));return c;}
+function changeQuestionLang(lang){
+ if(!['ru','en'].includes(lang))return;questionLang=lang;
+ try{localStorage.setItem(LANGUAGE_KEY,lang);}catch(_ignored){}
+ document.querySelectorAll('[data-question-lang]').forEach(b=>{
+  const selected=b.dataset.questionLang===lang;
+  b.classList.toggle('selected',selected);
+  b.setAttribute('aria-pressed',selected?'true':'false');
+ });
+}
+function sourceLabel(raw){
+ const x=String(raw||'Источник');
+ const match=x.match(/\b(FCOM|FCTM|QRH|SOP|OM)\b/i);
+ return match?match[1].toUpperCase():x.split(/[;,]/)[0].trim().slice(0,36);
+}
+function sourceSection(src){
+ const s=String(src.section||'');
+ const codes=[...s.matchAll(/\b\d{1,2}\.\d{1,2}\.\d+\b/g)].map(x=>x[0]);
+ return codes.length?[...new Set(codes)].join(' / '):s.split('·').pop().trim().slice(0,45);
+}
+function localReview(it){return progress.reviews?.[it.id]||null;}
+function reviewSummary(it){
+ const r=localReview(it);
+ if(r?.status==='current')return 'Моя проверка: действующая редакция '+r.revision+'; дата '+r.checkedAt+'.';
+ if(r?.status==='source')return 'Моя проверка по документу '+r.revision+'; дата '+r.checkedAt+'. Актуальность нужно уточнять отдельно.';
+ return it.source?.verified?'Автор банка отметил сверку с предоставленным PDF. Актуальность не подтверждена.':'Сверка с источником не отмечена.';
+}
+
+function sourceNode(it){
+ const src=it.source||{},box=el('details',undefined,'source-details');
+ const summary=el('summary',undefined,'source-summary');
+ const pages=Array.isArray(src.pdfPages)&&src.pdfPages.length?src.pdfPages.join(', '):(src.pdfPage||'');
+ const compact=[sourceLabel(src.document),sourceSection(src),pages?'PDF стр. '+pages:''].filter(Boolean).join(' · ');
+ summary.append(el('span',compact),el('span','Подробнее','source-more'));box.append(summary);
+ const extra=el('div',undefined,'source-extra');
+ if(src.revision)extra.append(el('div','Редакция документа: '+String(src.revision).replace(/\s*\(historical;.*$/i,'')));
+ if(!pages&&src.page)extra.append(el('div','Страница/пункт: '+src.page));
+ extra.append(el('div',reviewSummary(it)));
+ const check=localReview(it);if(check?.note)extra.append(el('div','Моя заметка: '+check.note));
+ box.append(extra);return box;
+}
+function itemHeading(it){const c=el('div');c.append(el('span',classify(it),'pill'),el('span',it.topic,'pill'));if(localReview(it)?.status==='current')c.append(el('span','Проверено мной','pill verified'));return c;}
 function topics(){return [...new Set(pack.items.map(q=>q.topic))].sort((a,b)=>a.localeCompare(b,'ru'));}
 function fillSelect(id){const s=$(id), current=s.value;clear(s);s.append(new Option('Все темы','all'));topics().forEach(x=>s.append(new Option(x,x)));if([...s.options].some(x=>x.value===current))s.value=current;}
 function renderStats(){const c=$('stats');clear(c);[[pack.items.length,'Карточек в банке'],[progress.answered,'Ответов'],[progress.answered?Math.round(progress.correct/progress.answered*100)+'%':'—','Точность'],[progress.wrongIds.length,'Ошибок к повтору']].forEach(([num,label])=>{const box=el('div',undefined,'stat');box.append(el('div',String(num),'num'),el('div',label,'lbl'));c.append(box);});}
@@ -68,8 +113,8 @@ function renderQuestion(){
  const it=session.items[session.index], b=$('question-body');clear(b);session.selected=[];session.checked=false;
  $('question-meta').textContent=`Вопрос ${session.index+1} из ${session.items.length}`;
  $('quiz-progress').style.width=`${(session.index)/session.items.length*100}%`;
- b.append(itemHeading(it),el('div',it.prompt,'qtext'));
- it.options.forEach((option,i)=>{
+ const display=translated(it);b.append(itemHeading(it),el('div',display.prompt,'qtext'));
+ display.options.forEach((option,i)=>{
   const btn=el('button',undefined,'choice');btn.type='button';btn.dataset.index=i;
   btn.append(el('span',String.fromCharCode(65+i),'letter'),el('span',option));
   btn.addEventListener('click',()=>{
@@ -91,9 +136,9 @@ function quizCheck(){if(!session||session.checked||!session.selected.length)retu
  else if(!progress.wrongIds.includes(it.id))progress.wrongIds.push(it.id);
  save();
  [...$('question-body').querySelectorAll('.choice')].forEach(c=>{let n=Number(c.dataset.index);if(ans.includes(n))c.classList.add('correct');else if(sel.includes(n))c.classList.add('incorrect');});
- const f=$('quiz-feedback');clear(f);f.className='feedback '+(ok?'good':'bad');f.append(el('strong',ok?'Верно':'Есть ошибка'));
- f.append(el('div','\nПравильный ответ: '+ans.map(n=>it.options[n]).join(' + ')));
- if(it.explanation)f.append(el('div','\n'+it.explanation));
+ const display=translated(it);const f=$('quiz-feedback');clear(f);f.className='feedback '+(ok?'good':'bad');f.append(el('strong',ok?'Верно':'Есть ошибка'));
+ f.append(el('div','\nПравильный ответ: '+ans.map(n=>display.options[n]).join(' + ')));
+ if(display.explanation)f.append(el('div','\n'+display.explanation));
  show('quiz-feedback',true);show('check-answer',false);show('next-question',true);$('next-question').textContent=session.index===session.items.length-1?'Результаты →':'Следующий →';renderStats();
 }
 function quizNext(){if(!session)return;session.index++;if(session.index>=session.items.length)quizFinish();else renderQuestion();}
@@ -109,8 +154,8 @@ function cardsStart(){
  cards={items,index:0,revealed:false};show('cards-start',false);show('cards-active',true);renderCard();
 }
 function renderCard(){if(!cards)return;const it=cards.items[cards.index], n=$('card-content');clear(n);
- $('card-count').textContent=`Карточка ${cards.index+1} из ${cards.items.length}`;n.append(itemHeading(it),el('div',it.prompt,'qtext'));
- if(cards.revealed){n.append(el('div',it.answer||'Ответ в банке не указан.','feedback flash'));if(it.explanation)n.append(el('p',it.explanation,'muted'));}
+ const display=translated(it);$('card-count').textContent=`Карточка ${cards.index+1} из ${cards.items.length}`;n.append(itemHeading(it),el('div',display.prompt,'qtext'));
+ if(cards.revealed){n.append(el('div',display.answer||'Ответ в банке не указан.','feedback flash'));if(display.explanation)n.append(el('p',display.explanation,'muted'));}
  n.append(sourceNode(it));show('reveal-card',!cards.revealed);show('again-card',cards.revealed);show('know-card',cards.revealed);
 }
 function cardAnswer(known){if(!cards)return;const it=cards.items[cards.index];const old=progress.cards[it.id]||{level:0};
@@ -140,7 +185,7 @@ function sectionGroups(items=pack.items){
 function sectionSubtitle(group){
  const count=group.items.length;
  const version=group.revisions.size===1?' · '+[...group.revisions][0]:group.revisions.size>1?' · несколько редакций':'';
- return count+' '+ruCount(count,'вопрос','вопроса','вопросов')+' · '+group.bank+version;
+ return count+' '+ruCount(count,'вопрос','вопроса','вопросов')+' · '+sourceLabel(group.bank)+version;
 }
 function confirmDelete({kind,topic,prompt,count}){
  const isSection=kind==='section',dialog=$('delete-dialog');
@@ -213,7 +258,7 @@ function renderPack(){
   const details=el('div',undefined,'section-questions hidden');
   group.items.forEach((it,index)=>{
    const line=el('div',undefined,'question-entry');
-   const title=el('span',(index+1)+'. '+it.prompt,'question-title');
+   const title=el('span',(index+1)+'. '+translated(it).prompt,'question-title');
    const remove=el('button','Удалить','text-danger');remove.type='button';
    remove.addEventListener('click',()=>removeItems(new Set([it.id]),{kind:'question',topic:group.topic,prompt:it.prompt}));
    line.append(title,remove);details.append(line);
@@ -377,6 +422,8 @@ function boot(){
  $('restore-file').addEventListener('change',async e=>{try{await importFile(e.target.files[0],'restore');}finally{e.target.value='';}});
  $('export-backup').addEventListener('click',()=>download('b737-trainer-backup.json',{pack,progress,exportedAt:new Date().toISOString()}));
  $('export-template').addEventListener('click',()=>download('b737-trainer-json-example.json',EXAMPLE_BANK));
+ document.querySelectorAll('[data-question-lang]').forEach(b=>b.addEventListener('click',()=>changeQuestionLang(b.dataset.questionLang)));
+ changeQuestionLang(questionLang);
  updateAll();selectTab('quiz');
  const conn=$('connection'); const syncConn=()=>conn.textContent=navigator.onLine?'◉ Режим сети':'✓ Офлайн';window.addEventListener('online',syncConn);window.addEventListener('offline',syncConn);syncConn();
  if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))navigator.serviceWorker.register('./sw.js').catch(e=>{console.warn('Service worker registration failed',e);});
