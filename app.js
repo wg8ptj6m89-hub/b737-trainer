@@ -142,9 +142,41 @@ function sectionSubtitle(group){
  const version=group.revisions.size===1?' · '+[...group.revisions][0]:group.revisions.size>1?' · несколько редакций':'';
  return count+' '+ruCount(count,'вопрос','вопроса','вопросов')+' · '+group.bank+version;
 }
-function removeItems(ids,description){
+function confirmDelete({kind,topic,prompt,count}){
+ const isSection=kind==='section',dialog=$('delete-dialog');
+ const heading=isSection?'Удалить раздел «'+topic+'»?':'Удалить вопрос?';
+ const subtitle=isSection?'':(prompt||'');
+ const note=isSection
+  ?count+' '+ruCount(count,'вопрос исчезнет','вопроса исчезнут','вопросов исчезнут')+' из тренажёра. Остальные разделы останутся.'
+  :'Этот вопрос исчезнет из тренажёра. Остальные вопросы останутся.';
+ $('delete-dialog-title').textContent=heading;
+ $('delete-dialog-subtitle').textContent=subtitle;
+ $('delete-dialog-subtitle').classList.toggle('hidden',!subtitle);
+ $('delete-dialog-note').textContent=note;
+ $('delete-dialog-accept').textContent=isSection?'Удалить раздел':'Удалить вопрос';
+ if(typeof dialog.showModal!=='function')return Promise.resolve(confirm(heading+'\n'+note));
+ return new Promise(resolve=>{
+  let done=false;
+  const yes=$('delete-dialog-accept'),no=$('delete-dialog-cancel');
+  function finish(confirmed){
+   if(done)return;done=true;
+   yes.removeEventListener('click',accept);
+   no.removeEventListener('click',cancel);
+   dialog.removeEventListener('close',cancel);
+   if(dialog.open)dialog.close();
+   resolve(confirmed);
+  }
+  function accept(){finish(true);}
+  function cancel(){finish(false);}
+  yes.addEventListener('click',accept);
+  no.addEventListener('click',cancel);
+  dialog.addEventListener('close',cancel);
+  dialog.showModal();
+ });
+}
+async function removeItems(ids,details){
  const n=ids.size;if(!n)return;
- if(!confirm('Удалить '+description+'?\n\n'+n+' '+ruCount(n,'вопрос будет удалён','вопроса будут удалены','вопросов будут удалены')+'. Другие разделы и общая статистика сохранятся.'))return;
+ if(!await confirmDelete({...details,count:n}))return;
  try{
   const next=normalizePack(pack);
   next.items=next.items.filter(item=>!ids.has(item.id));
@@ -153,7 +185,7 @@ function removeItems(ids,description){
   commitState(next,nextProgress);
   updateAll();
   $('file-message').className='inline-ok';
-  $('file-message').textContent='Удалено: '+n+'. Остальные вопросы сохранены.';
+  $('file-message').textContent=details.kind==='section'?'Раздел удалён.':'Вопрос удалён.';
  }catch(e){$('file-message').className='inline-err';$('file-message').textContent='Не удалось удалить: '+e.message;}
 }
 let pendingSectionKey='';
@@ -183,7 +215,7 @@ function renderPack(){
    const line=el('div',undefined,'question-entry');
    const title=el('span',(index+1)+'. '+it.prompt,'question-title');
    const remove=el('button','Удалить','text-danger');remove.type='button';
-   remove.addEventListener('click',()=>removeItems(new Set([it.id]),'этот вопрос'));
+   remove.addEventListener('click',()=>removeItems(new Set([it.id]),{kind:'question',topic:group.topic,prompt:it.prompt}));
    line.append(title,remove);details.append(line);
   });
   reveal.addEventListener('click',()=>{const open=details.classList.toggle('hidden');reveal.textContent=open?'Вопросы':'Скрыть';});
@@ -192,7 +224,7 @@ function renderPack(){
   const update=el('button','Обновить раздел','secondary mini-button');update.type='button';
   update.addEventListener('click',()=>beginSectionUpdate(group.key));
   const remove=el('button','Удалить раздел','text-danger');remove.type='button';
-  remove.addEventListener('click',()=>removeItems(new Set(group.items.map(q=>q.id)),'раздел «'+group.topic+'» ('+group.bank+')'));
+  remove.addEventListener('click',()=>removeItems(new Set(group.items.map(q=>q.id)),{kind:'section',topic:group.topic}));
   actions.append(update,remove);panel.append(actions);list.append(panel);
  }
 }
