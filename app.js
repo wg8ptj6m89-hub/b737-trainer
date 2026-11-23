@@ -82,6 +82,42 @@ function reviewSummary(it){
  return it.source?.verified?'Автор банка отметил сверку с предоставленным PDF. Актуальность не подтверждена.':'Сверка с источником не отмечена.';
 }
 
+
+function learningCore(it){
+ return JSON.stringify(canonical({type:it.type,prompt:it.prompt,options:it.options||null,correctIndices:it.correctIndices||null,answer:it.answer}));
+}
+function revisionChanged(before,after){
+ return String(before.source?.revision||'')!==String(after.source?.revision||'') ||
+        String(before.source?.page||'')!==String(after.source?.page||'') ||
+        String(before.source?.document||'')!==String(after.source?.document||'');
+}
+function reviewDialog(it){
+ const dialog=$('review-dialog'),current=localReview(it);
+ $('review-dialog-title').textContent='Проверка вопроса';
+ $('review-question').textContent=translated(it).prompt;
+ $('review-status').value=current?.status||'none';
+ $('review-revision').value=current?.revision||String(it.source?.revision||'').replace(/\s*\(historical;.*$/i,'').slice(0,100);
+ $('review-date').value=current?.checkedAt||'';
+ $('review-note').value=current?.note||'';
+ $('review-error').textContent='';
+ if(typeof dialog.showModal!=='function'){alert('Не удалось открыть окно проверки в этом браузере.');return;}
+ const saveBtn=$('review-save'),cancelBtn=$('review-cancel');
+ function cleanup(){saveBtn.removeEventListener('click',commit);cancelBtn.removeEventListener('click',cancel);dialog.removeEventListener('close',cleanup);}
+ function cancel(){dialog.close();}
+ function commit(){
+  const status=$('review-status').value,revision=$('review-revision').value.trim(),checkedAt=$('review-date').value,note=$('review-note').value.trim();
+  if(status!=='none'&&(!revision||!/^\d{4}-\d{2}-\d{2}$/.test(checkedAt))){$('review-error').textContent='Укажи редакцию документа и дату сверки.';return;}
+  const next=clone(progress);
+  if(!next.reviews||typeof next.reviews!=='object')next.reviews={};
+  if(status==='none')delete next.reviews[it.id];
+  else next.reviews[it.id]={status,revision,checkedAt,note};
+  try{localStorage.setItem(PROGRESS_KEY,JSON.stringify(next));progress=next;dialog.close();renderPack();}
+  catch(e){$('review-error').textContent='Не удалось сохранить: '+e.message;}
+ }
+ saveBtn.addEventListener('click',commit);cancelBtn.addEventListener('click',cancel);dialog.addEventListener('close',cleanup);
+ dialog.showModal();
+}
+
 function sourceNode(it){
  const src=it.source||{},box=el('details',undefined,'source-details');
  const summary=el('summary',undefined,'source-summary');
@@ -261,7 +297,9 @@ function renderPack(){
    const title=el('span',(index+1)+'. '+translated(it).prompt,'question-title');
    const remove=el('button','Удалить','text-danger');remove.type='button';
    remove.addEventListener('click',()=>removeItems(new Set([it.id]),{kind:'question',topic:group.topic,prompt:it.prompt}));
-   line.append(title,remove);details.append(line);
+   const check=el('button','Проверка','secondary review-small');check.type='button';check.addEventListener('click',()=>reviewDialog(it));
+   const actions=el('div',undefined,'question-actions');actions.append(check,remove);
+   line.append(title,actions);details.append(line);
   });
   reveal.addEventListener('click',()=>{const open=details.classList.toggle('hidden');reveal.textContent=open?'Вопросы':'Скрыть';});
   panel.append(details);
@@ -278,20 +316,22 @@ function normalizePack(value){return {schemaVersion:1,title:String(value.title||
 // Compare semantic content independent of JSON property ordering.
 function canonical(v){if(Array.isArray(v))return v.map(canonical);if(v&&typeof v==='object')return Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])]));return v;}
 function sameItem(a,b){return JSON.stringify(canonical(a))===JSON.stringify(canonical(b));}
-function filteredProgress(base,keepIds,changedIds){
- const p=clone(base), allowed=new Set(keepIds);
+function filteredProgress(base,keepIds,changedIds,reviewInvalid=changedIds){
+ const p=clone(base),allowed=new Set(keepIds);
  p.wrongIds=(Array.isArray(p.wrongIds)?p.wrongIds:[]).filter(id=>allowed.has(id)&&!changedIds.has(id));
  p.cards=Object.fromEntries(Object.entries(p.cards&&typeof p.cards==='object'?p.cards:{}).filter(([id])=>allowed.has(id)&&!changedIds.has(id)));
+ p.reviews=Object.fromEntries(Object.entries(p.reviews&&typeof p.reviews==='object'?p.reviews:{}).filter(([id])=>allowed.has(id)&&!reviewInvalid.has(id)));
  return p;
 }
 function progressFromBackup(value,ids){
- const valid=new Set(ids);const answered=Math.max(0,Math.floor(Number(value.answered)||0));
+ const valid=new Set(ids),answered=Math.max(0,Math.floor(Number(value.answered)||0));
  const correct=Math.min(answered,Math.max(0,Math.floor(Number(value.correct)||0)));
- return {answered,correct,wrongIds:[...new Set(Array.isArray(value.wrongIds)?value.wrongIds.filter(x=>typeof x==='string'&&valid.has(x)):[])],cards:Object.fromEntries(Object.entries(value.cards&&typeof value.cards==='object'?value.cards:{}).filter(([k,v])=>valid.has(k)&&v&&typeof v==='object'&&Number.isFinite(v.next)&&Number.isFinite(v.level)).map(([k,v])=>[k,{next:v.next,level:Math.max(0,Math.min(4,Math.floor(v.level)))}]))};
+ const reviews=Object.fromEntries(Object.entries(value.reviews&&typeof value.reviews==='object'?value.reviews:{}).filter(([id,v])=>valid.has(id)&&v&&['source','current'].includes(v.status)&&typeof v.revision==='string'&&typeof v.checkedAt==='string'));
+ return {answered,correct,wrongIds:[...new Set(Array.isArray(value.wrongIds)?value.wrongIds.filter(x=>typeof x==='string'&&valid.has(x)):[])],cards:Object.fromEntries(Object.entries(value.cards&&typeof value.cards==='object'?value.cards:{}).filter(([k,v])=>valid.has(k)&&v&&typeof v==='object'&&Number.isFinite(v.next)&&Number.isFinite(v.level)).map(([k,v])=>[k,{next:v.next,level:Math.max(0,Math.min(4,Math.floor(v.level)))}])),reviews};
 }
 function planImport(current,incoming,mode,currentProgress,targetKey=''){
  const next=mode==='replace'?normalizePack(incoming):normalizePack(current);
- const changed=new Set(),counts={added:0,updated:0,unchanged:0,skipped:0,removed:0};
+ const changed=new Set(),reviewInvalid=new Set(),counts={added:0,updated:0,unchanged:0,skipped:0,removed:0};
  const previousById=new Map(current.items.map(q=>[q.id,q]));
  if(mode==='replace-section'){
   const selected=sectionGroups(current.items).find(g=>g.key===targetKey);
@@ -306,13 +346,13 @@ function planImport(current,incoming,mode,currentProgress,targetKey=''){
   for(const q of incoming.items){
    if(!old.has(q.id))counts.added++;
    else if(sameItem(old.get(q.id),q))counts.unchanged++;
-   else{counts.updated++;changed.add(q.id);}
+   else{counts.updated++;if(learningCore(old.get(q.id))!==learningCore(q))changed.add(q.id);if(revisionChanged(old.get(q.id),q)||learningCore(old.get(q.id))!==learningCore(q))reviewInvalid.add(q.id);}
   }
   for(const q of selected.items)if(!received.has(q.id))counts.removed++;
   next.items=[...keep,...clone(incoming.items)];
  }else if(mode==='replace'){
   const newIds=new Set(next.items.map(q=>q.id));
-  for(const q of next.items){if(!previousById.has(q.id))counts.added++;else if(sameItem(previousById.get(q.id),q))counts.unchanged++;else{counts.updated++;changed.add(q.id);}}
+  for(const q of next.items){if(!previousById.has(q.id))counts.added++;else if(sameItem(previousById.get(q.id),q))counts.unchanged++;else{counts.updated++;if(learningCore(previousById.get(q.id))!==learningCore(q))changed.add(q.id);if(revisionChanged(previousById.get(q.id),q)||learningCore(previousById.get(q.id))!==learningCore(q))reviewInvalid.add(q.id);}}
   for(const q of current.items)if(!newIds.has(q.id))counts.removed++;
  }else{
   const byId=new Map(next.items.map((v,i)=>[v.id,i]));
@@ -321,7 +361,10 @@ function planImport(current,incoming,mode,currentProgress,targetKey=''){
    else if(sameItem(next.items[byId.get(q.id)],q))counts.unchanged++;
    else if(mode==='update'){
     if(sectionKey(next.items[byId.get(q.id)])!==sectionKey(q))throw Error('В файле совпадает идентификатор вопроса из другого раздела. Исправь файл перед импортом.');
-    next.items[byId.get(q.id)]=clone(q);changed.add(q.id);counts.updated++;
+    const originalItem=next.items[byId.get(q.id)];
+    if(learningCore(originalItem)!==learningCore(q))changed.add(q.id);
+    if(learningCore(originalItem)!==learningCore(q)||revisionChanged(originalItem,q))reviewInvalid.add(q.id);
+    next.items[byId.get(q.id)]=clone(q);counts.updated++;
    }
    else counts.skipped++;
   }
@@ -332,7 +375,7 @@ function planImport(current,incoming,mode,currentProgress,targetKey=''){
   next.importHistory=next.importHistory.slice(-50);
  }
  const valid=validatePack(next);if(!valid.ok)throw Error(valid.error);
- return {next,counts,changed,nextProgress:filteredProgress(currentProgress,next.items.map(q=>q.id),changed)};
+ return {next,counts,changed,nextProgress:filteredProgress(currentProgress,next.items.map(q=>q.id),changed,reviewInvalid)};
 }
 function ruCount(n,one,few,many){
  const v=Math.abs(n)%100,last=v%10;
