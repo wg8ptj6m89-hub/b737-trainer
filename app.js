@@ -120,17 +120,11 @@ function reviewDialog(it){
 }
 
 function sourceNode(it){
- const src=it.source||{},box=el('details',undefined,'source-details');
- const summary=el('summary',undefined,'source-summary');
+ const src=it.source||{},c=el('div',undefined,'source-brief');
  const pages=Array.isArray(src.pdfPages)&&src.pdfPages.length?src.pdfPages.join(', '):(src.pdfPage||'');
  const compact=[sourceLabel(src.document),sourceSection(src),pages?'PDF стр. '+pages:''].filter(Boolean).join(' · ');
- summary.append(el('span',compact),el('span','Подробнее','source-more'));box.append(summary);
- const extra=el('div',undefined,'source-extra');
- if(src.revision)extra.append(el('div','Редакция документа: '+String(src.revision).replace(/\s*\(historical;.*$/i,'')));
- if(!pages&&src.page)extra.append(el('div','Страница/пункт: '+src.page));
- extra.append(el('div',reviewSummary(it)));
- const check=localReview(it);if(check?.note)extra.append(el('div','Моя заметка: '+check.note));
- box.append(extra);return box;
+ c.textContent=compact;
+ return c;
 }
 function itemHeading(it){const c=el('div');c.append(el('span',classify(it),'pill'),el('span',it.topic,'pill'));if(localReview(it)?.status==='current')c.append(el('span','Проверено мной','pill verified'));return c;}
 function topics(){return [...new Set(pack.items.map(q=>q.topic))].sort((a,b)=>a.localeCompare(b,'ru'));}
@@ -194,17 +188,30 @@ function renderQuestion(){
  show('quiz-feedback',false);show('check-answer',true);show('next-question',false);
  b.append(sourceNode(it));
 }
-function quizCheck(){if(!session||session.checked||!session.selected.length)return;
- const it=session.items[session.index], sel=session.selected.slice().sort((a,b)=>a-b), ans=it.correctIndices.slice().sort((a,b)=>a-b);
- const ok=JSON.stringify(sel)===JSON.stringify(ans);session.checked=true;session.correct+=ok?1:0;progress.answered++;progress.correct+=ok?1:0;
+function quizCheck(){
+ if(!session||session.checked||!session.selected.length)return;
+ const it=session.items[session.index],sel=session.selected.slice().sort((a,b)=>a-b),ans=it.correctIndices.slice().sort((a,b)=>a-b);
+ const ok=JSON.stringify(sel)===JSON.stringify(ans);
+ session.checked=true;session.correct+=ok?1:0;progress.answered++;progress.correct+=ok?1:0;
  if(ok)progress.wrongIds=progress.wrongIds.filter(x=>x!==it.id);
  else if(!progress.wrongIds.includes(it.id))progress.wrongIds.push(it.id);
  save();
- [...$('question-body').querySelectorAll('.choice')].forEach(c=>{let n=Number(c.dataset.index);if(ans.includes(n))c.classList.add('correct');else if(sel.includes(n))c.classList.add('incorrect');});
- const display=translated(it);const f=$('quiz-feedback');clear(f);f.className='feedback '+(ok?'good':'bad');f.append(el('strong',ok?'Верно':'Есть ошибка'));
- f.append(el('div','\nПравильный ответ: '+ans.map(n=>display.options[n]).join(' + ')));
- if(display.explanation)f.append(el('div','\n'+display.explanation));
- show('quiz-feedback',true);show('check-answer',false);show('next-question',true);$('next-question').textContent=session.index===session.items.length-1?'Результаты →':'Следующий →';renderStats();
+ [...$('question-body').querySelectorAll('.choice')].forEach(c=>{
+  const n=Number(c.dataset.index),isCorrect=ans.includes(n),wasSelected=sel.includes(n);
+  if(isCorrect)c.classList.add('correct');
+  else if(wasSelected)c.classList.add('incorrect');
+  if(isCorrect||wasSelected){
+   const marker=el('span',isCorrect?'✓ Правильно':'✕ Твой выбор','answer-marker');
+   c.append(marker);
+  }
+ });
+ const display=translated(it),f=$('quiz-feedback');clear(f);
+ f.className='feedback '+(ok?'good':'bad');
+ f.append(el('strong',ok?'Верно':'Есть ошибка'));
+ if(display.explanation&&display.explanation.trim())f.append(el('div',display.explanation,'feedback-explanation'));
+ show('quiz-feedback',true);show('check-answer',false);show('next-question',true);
+ $('next-question').textContent=session.index===session.items.length-1?'Результаты →':'Следующий →';
+ renderStats();
 }
 function quizNext(){if(!session)return;session.index++;if(session.index>=session.items.length)quizFinish();else renderQuestion();}
 function quizFinish(){if(!session)return;show('quiz-active',false);show('quiz-finish',true);const n=session.index>=session.items.length?session.items.length:session.index+(session.checked?1:0);$('quiz-summary').textContent=`Правильных ответов: ${session.correct} из ${n}. Ошибки сохранены для повторения.`;$('quiz-progress').style.width='100%';}
@@ -218,10 +225,25 @@ function cardsStart(){
  const now=Date.now();items.sort((a,b)=>(progress.cards[a.id]?.next||0)-(progress.cards[b.id]?.next||0));
  cards={items,index:0,revealed:false};show('cards-start',false);show('cards-active',true);renderCard();
 }
-function renderCard(){if(!cards)return;const it=cards.items[cards.index], n=$('card-content');clear(n);
- const display=translated(it);$('card-count').textContent=`Карточка ${cards.index+1} из ${cards.items.length}`;n.append(itemHeading(it),el('div',display.prompt,'qtext'));
- if(cards.revealed){n.append(el('div',display.answer||'Ответ в банке не указан.','feedback flash'));if(display.explanation)n.append(el('p',display.explanation,'muted'));}
- n.append(sourceNode(it));show('reveal-card',!cards.revealed);show('again-card',cards.revealed);show('know-card',cards.revealed);
+function renderCard(){
+ if(!cards)return;
+ const it=cards.items[cards.index],n=$('card-content');clear(n);
+ const display=translated(it);
+ $('card-count').textContent=`Карточка ${cards.index+1} из ${cards.items.length}`;
+ n.append(itemHeading(it),el('div',display.prompt,'qtext'));
+ if(cards.revealed){
+  n.append(el('div',display.answer||'Ответ в банке не указан.','feedback flash'));
+  const answer=String(display.answer||'').replace(/\s+/g,' ').trim();
+  const comment=String(display.explanation||'').replace(/\s+/g,' ').trim();
+  if(comment&&comment!==answer){
+   const details=el('details',undefined,'card-explanation');
+   const summary=el('summary','Пояснение','card-explanation-trigger');
+   details.append(summary,el('p',display.explanation,'card-explanation-text'));
+   n.append(details);
+  }
+ }
+ n.append(sourceNode(it));
+ show('reveal-card',!cards.revealed);show('again-card',cards.revealed);show('know-card',cards.revealed);
 }
 function cardAnswer(known){if(!cards)return;const it=cards.items[cards.index];const old=progress.cards[it.id]||{level:0};
  const level=known?Math.min(old.level+1,4):0;const days=[0,1,3,7,14][level];progress.cards[it.id]={level,next:Date.now()+days*86400000};save();
