@@ -46,14 +46,12 @@ function validatePack(value){
 }
 
 const LANGUAGE_KEY='b737_trainer_lang_v1';
-let questionLang='ru';
-try{if(localStorage.getItem(LANGUAGE_KEY)==='en')questionLang='en';}catch(_ignored){}
+let questionLang='en';
+try{if(localStorage.getItem(LANGUAGE_KEY)==='ru')questionLang='ru';}catch(_ignored){}
 function translated(it){
  const en=questionLang==='en'?it.translations?.en:null;
- const valid=en&&typeof en.prompt==='string'&&en.prompt.trim()&&
- (it.type!=='quiz'||Array.isArray(en.options)&&en.options.length===it.options.length&&en.options.every(v=>typeof v==='string'));
- return valid?{prompt:en.prompt,options:en.options||it.options,answer:en.answer||it.answer,explanation:en.explanation||it.explanation}:
- {prompt:it.prompt,options:it.options,answer:it.answer,explanation:it.explanation};
+ const valid=en&&typeof en.prompt==='string'&&en.prompt.trim()&&(it.type!=='quiz'||Array.isArray(en.options)&&en.options.length===it.options.length&&en.options.every(v=>typeof v==='string'));
+ return valid?{prompt:en.prompt,options:en.options||it.options,answer:en.answer||it.answer,explanation:en.explanation||it.explanation,cardComment:typeof en.cardComment==='string'?en.cardComment:''}:{prompt:it.prompt,options:it.options,answer:it.answer,explanation:it.explanation,cardComment:typeof it.cardComment==='string'?it.cardComment:''};
 }
 function changeQuestionLang(lang){
  if(!['ru','en'].includes(lang))return;questionLang=lang;
@@ -218,11 +216,15 @@ function quizFinish(){if(!session)return;show('quiz-active',false);show('quiz-fi
 function quizReset(){session=null;show('quiz-active',false);show('quiz-finish',false);show('quiz-start',true);renderStats();}
 let cards=null;
 function cardsStart(){
- const t=$('card-topic').value, type=$('card-type').value;
- const items=pack.items.filter(q=>(t==='all'||q.topic===t)&&(type==='all'||(type==='system'?q.type==='quiz':q.type===type)));
- if(!items.length){alert('Нет карточек по выбранной теме и типу.');return;}
- // Due cards first, then the rest; both available offline.
- const now=Date.now();items.sort((a,b)=>(progress.cards[a.id]?.next||0)-(progress.cards[b.id]?.next||0));
+ const t=$('card-topic').value,type=$('card-type').value,scope=$('card-scope').value;
+ let items=pack.items.filter(q=>(t==='all'||q.topic===t)&&(type==='all'||(type==='system'?q.type==='quiz':q.type===type)));
+ if(scope==='due'){
+  const now=Date.now();
+  items=items.filter(q=>!progress.cards[q.id]||!Number.isFinite(progress.cards[q.id].next)||progress.cards[q.id].next<=now);
+ }
+ if(!items.length){$('cards-message').textContent=scope==='due'?'На сегодня карточек к повторению нет. Выбери «Все карточки», если хочешь потренироваться дополнительно.':'По выбранной теме нет карточек.';return;}
+ $('cards-message').textContent='';
+ items.sort((a,b)=>(progress.cards[a.id]?.next||0)-(progress.cards[b.id]?.next||0));
  cards={items,index:0,revealed:false};show('cards-start',false);show('cards-active',true);renderCard();
 }
 function renderCard(){
@@ -234,24 +236,24 @@ function renderCard(){
  if(cards.revealed){
   n.append(el('div',display.answer||'Ответ в банке не указан.','feedback flash'));
   const answer=String(display.answer||'').replace(/\s+/g,' ').trim();
-  const comment=String(display.explanation||'').replace(/\s+/g,' ').trim();
-  if(comment&&comment!==answer){
-   const details=el('details',undefined,'card-explanation');
-   const summary=el('summary','Пояснение','card-explanation-trigger');
-   details.append(summary,el('p',display.explanation,'card-explanation-text'));
-   n.append(details);
-  }
+  const comment=String(display.cardComment||'').replace(/\s+/g,' ').trim();
+  if(comment&&comment!==answer)n.append(el('p',display.cardComment,'card-comment'));
  }
- n.append(sourceNode(it));
- show('reveal-card',!cards.revealed);show('again-card',cards.revealed);show('know-card',cards.revealed);
+ n.append(sourceNode(it));show('reveal-card',!cards.revealed);show('again-card',cards.revealed);show('know-card',cards.revealed);
 }
-function cardAnswer(known){if(!cards)return;const it=cards.items[cards.index];const old=progress.cards[it.id]||{level:0};
- const level=known?Math.min(old.level+1,4):0;const days=[0,1,3,7,14][level];progress.cards[it.id]={level,next:Date.now()+days*86400000};save();
+function cardAnswer(known){
+ if(!cards)return;
+ const it=cards.items[cards.index],old=progress.cards[it.id]||{level:0},level=known?Math.min(old.level+1,4):0;
+ progress.cards[it.id]={level,next:Date.now()+[0,1,3,7,14][level]*86400000};save();
+ if(!known){const remaining=cards.items.length-cards.index-1;cards.items.splice(cards.index+1+Math.min(3,remaining),0,it);}
  cards.index++;
- if(cards.index>=cards.items.length){stopCards();alert('Повторение завершено. Прогресс сохранён на устройстве.');return;}
+ if(cards.index>=cards.items.length){stopCards(true);return;}
  cards.revealed=false;renderCard();
 }
-function stopCards(){cards=null;show('cards-active',false);show('cards-start',true);}
+function stopCards(completed=false){
+ cards=null;show('cards-active',false);show('cards-start',true);
+ if(completed)$('cards-message').textContent='Готово! Карточки, отмеченные «Знаю», вернутся по расписанию.';
+}
 function selectTab(id){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));document.querySelectorAll('.tab-content').forEach(p=>p.classList.toggle('hidden',p.id!==id));if(id==='library')renderPack();}
 // A section is a topic inside a source collection; revision changes do not rename it.
 function sourceGroup(item){
@@ -269,11 +271,7 @@ function sectionGroups(items=pack.items){
  }
  return [...groups.values()].sort((a,b)=>a.topic.localeCompare(b.topic,'ru')||a.bank.localeCompare(b.bank,'ru'));
 }
-function sectionSubtitle(group){
- const count=group.items.length;
- const version=group.revisions.size===1?' · '+[...group.revisions][0]:group.revisions.size>1?' · несколько редакций':'';
- return count+' '+ruCount(count,'вопрос','вопроса','вопросов')+' · '+sourceLabel(group.bank)+version;
-}
+function sectionSubtitle(group){const count=group.items.length;return count+' '+ruCount(count,'вопрос','вопроса','вопросов')+' · '+sourceLabel(group.bank);}
 function confirmDelete({kind,topic,prompt,count}){
  const isSection=kind==='section',dialog=$('delete-dialog');
  const heading=isSection?'Удалить раздел «'+topic+'»?':'Удалить вопрос?';
@@ -510,7 +508,7 @@ function updateAll(){fillSelect('quiz-topic');fillSelect('card-topic');renderSta
 function boot(){
  document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>selectTab(b.dataset.tab)));
  $('start-quiz').addEventListener('click',quizStart);$('check-answer').addEventListener('click',quizCheck);$('next-question').addEventListener('click',quizNext);$('stop-quiz').addEventListener('click',quizFinish);$('restart-quiz').addEventListener('click',quizReset);
- $('start-cards').addEventListener('click',cardsStart);$('reveal-card').addEventListener('click',()=>{cards.revealed=true;renderCard();});$('again-card').addEventListener('click',()=>cardAnswer(false));$('know-card').addEventListener('click',()=>cardAnswer(true));$('stop-cards').addEventListener('click',stopCards);
+ $('start-cards').addEventListener('click',cardsStart);$('reveal-card').addEventListener('click',()=>{cards.revealed=true;renderCard();});$('again-card').addEventListener('click',()=>cardAnswer(false));$('know-card').addEventListener('click',()=>cardAnswer(true));$('stop-cards').addEventListener('click',()=>stopCards());
  $('import-file').addEventListener('change',async e=>{try{await importFile(e.target.files[0],'add');}finally{e.target.value='';}});
  $('section-file').addEventListener('change',async e=>{const key=pendingSectionKey;try{await importFile(e.target.files[0],'replace-section',key);}finally{e.target.value='';pendingSectionKey='';}});
  $('restore-file').addEventListener('change',async e=>{try{await importFile(e.target.files[0],'restore');}finally{e.target.value='';}});
