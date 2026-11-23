@@ -50,6 +50,16 @@
     .dialog-metric-value{font-size:26px;font-weight:800;line-height:1.1;color:var(--navy)}
     .dialog-note{font-size:13px;line-height:1.6;color:#495c75;margin:0 0 20px}
     .dialog-actions{display:flex;gap:10px}.dialog-actions button{flex:1;min-width:0;min-height:48px;border-radius:13px}
+    .dialog-metrics.three{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+    .dialog-metrics.three .dialog-metric{padding:11px 8px}
+    .dialog-metrics.three .dialog-metric-value{font-size:24px}
+    .dialog-metrics.three .dialog-metric-label{font-size:11px}
+    .dialog-checkbox-wrap{border:1px solid var(--line);background:#f7f9fc;border-radius:13px;padding:12px;margin-bottom:13px}
+    .dialog-checkbox{display:flex;align-items:flex-start;gap:11px;font-size:13px;line-height:1.4;color:#233b5c;cursor:pointer}
+    .dialog-checkbox input{width:19px;height:19px;flex-shrink:0;accent-color:var(--blue)}
+    .backup-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:stretch}
+    .backup-actions>*{flex:1;min-width:155px;display:flex;align-items:center;justify-content:center;text-align:center}
+    .outline-file{background:white;border:1px solid var(--line);color:#31435d}
 
     .safe-note{font-size:11px;color:#586a82;text-align:center;padding:2px 5px 12px}
     .section-entry{border:1px solid var(--line);border-radius:14px;padding:13px;margin-top:12px}
@@ -95,32 +105,30 @@
    <h1>Мои вопросы</h1>
    <p id="pack-info" class="muted"></p>
    <div id="bank-list"></div>
+   <div id="section-message" role="status" aria-live="polite"></div>
+   <input type="file" accept=".json,application/json" id="section-file" hidden>
   </div>
   <div class="card" id="import-panel">
    <h2>Добавить вопросы</h2>
-   <div class="control"><label for="import-mode">Действие</label>
-    <select id="import-mode">
-     <option value="add">Добавить новые</option>
-     <option value="update">Добавить и исправить существующие</option>
-     <option value="replace-section">Заменить отдельный раздел</option>
-     <option value="replace">Восстановить базу из копии</option>
-    </select>
-   </div>
-   <div class="control hidden" id="import-target-wrap"><label for="import-target">Какой раздел заменить?</label><select id="import-target"></select></div>
-   <label id="import-file-control" class="filelabel" tabindex="-1">Выбрать JSON-файл <input type="file" accept=".json,application/json" id="import-file"></label>
+   <p class="muted">Выбери файл. Приложение покажет, сколько новых и изменённых вопросов в нём найдено.</p>
+   <label class="filelabel">Выбрать файл с вопросами <input type="file" accept=".json,application/json" id="import-file"></label>
    <div id="file-message" role="status" aria-live="polite"></div>
   </div>
   <div class="card">
    <h2>Резервная копия</h2>
    <p class="muted">Сохрани вопросы и прогресс на случай смены телефона.</p>
-   <div class="actions"><button class="secondary" id="export-backup">Сохранить копию</button></div>
+   <div class="backup-actions">
+    <button class="secondary" id="export-backup">Сохранить копию</button>
+    <label class="filelabel outline-file">Восстановить из копии <input type="file" accept=".json,application/json" id="restore-file"></label>
+   </div>
+   <div id="backup-message" role="status" aria-live="polite"></div>
    <details class="help-details">
-    <summary>Справка и дополнительные настройки</summary>
-    <p>Вопросы и результаты хранятся на этом устройстве. При удалении приложения или очистке его данных они могут исчезнуть. Перед крупными изменениями сохраняй копию.</p>
-    <p>«Добавить» сохраняет существующие вопросы. «Исправить» обновляет карточки с теми же идентификаторами. «Заменить раздел» удаляет прежнюю версию выбранного раздела и загружает новую.</p>
-    <p>При замене раздела JSON должен содержать вопросы только по этому разделу и источнику. Источник и тема должны совпадать; редакция может отличаться.</p>
-    <p>Импорт выполняется на телефоне без отправки файлов на сервер. Служебные руководства и закрытые вопросы нельзя публиковать в открытом GitHub без разрешения правообладателя.</p>
-    <button class="secondary" id="export-template" type="button">Скачать пример JSON</button>
+    <summary>Помощь</summary>
+    <p>Всё хранится на этом устройстве. Если приложение удалить или очистить его данные, вопросы и прогресс могут исчезнуть. Регулярно сохраняй копию.</p>
+    <p>«Добавить вопросы» добавляет новые карточки. Если в файле есть исправленные версии старых вопросов, ты сам решаешь, применять ли исправления.</p>
+    <p>«Обновить раздел» полностью заменяет выбранный раздел. Старые вопросы, отсутствующие в новом файле, исчезнут из этого раздела; остальные разделы останутся.</p>
+    <p>Импорт работает локально. Не публикуй служебные руководства и закрытые материалы в GitHub без разрешения.</p>
+    <button class="secondary" id="export-template" type="button">Пример формата JSON</button>
    </details>
   </div>
  </section>
@@ -131,6 +139,7 @@
   <h2 id="import-dialog-title">Добавить вопросы?</h2>
   <div id="import-dialog-subtitle" class="dialog-subtitle"></div>
   <div id="import-dialog-metrics" class="dialog-metrics"></div>
+  <div id="import-dialog-update-wrap" class="dialog-checkbox-wrap hidden"><label class="dialog-checkbox"><input type="checkbox" id="import-dialog-update" checked><span>Применить исправления к существующим вопросам</span></label></div>
   <p id="import-dialog-note" class="dialog-note"></p>
   <div class="dialog-actions"><button type="button" class="secondary" id="import-dialog-cancel">Отмена</button><button type="button" class="primary" id="import-dialog-accept">Добавить</button></div>
  </div>
