@@ -32,7 +32,7 @@ function show(id,yes){$(id).classList.toggle('hidden',!yes);}
 function classify(it){return it.type==='quiz'?'Systems':it.type==='memory'?'Memory Items':it.type==='limitation'?'Limitations':'Interview';}
 function validatePack(value){
  if(!value||typeof value!=='object'||value.schemaVersion!==1||!Array.isArray(value.items))return {ok:false,error:'Нужен объект schemaVersion: 1 с массивом items.'};
- if(value.items.length>5000)return {ok:false,error:'Максимум 5000 карточек для демонстрационного приложения.'};
+ if(value.items.length>5000)return {ok:false,error:'Максимум 5000 вопросов в одном файле.'};
  const ids=new Set();
  for(let i=0;i<value.items.length;i++){
   const q=value.items[i];
@@ -156,20 +156,10 @@ function removeItems(ids,description){
   $('file-message').textContent='Удалено: '+n+'. Остальные вопросы сохранены.';
  }catch(e){$('file-message').className='inline-err';$('file-message').textContent='Не удалось удалить: '+e.message;}
 }
+let pendingSectionKey='';
 function beginSectionUpdate(key){
- $('import-mode').value='replace-section';
- renderTargetSelect(key);
- $('import-panel').scrollIntoView({behavior:'smooth',block:'start'});
- $('import-file-control').focus();
-}
-function renderTargetSelect(preferred){
- const select=$('import-target'), current=preferred||select.value;
- const groups=sectionGroups();clear(select);
- for(const group of groups)select.append(new Option(group.topic+' — '+group.bank,group.key));
- if(groups.some(g=>g.key===current))select.value=current;
- const visible=$('import-mode').value==='replace-section';
- show('import-target-wrap',visible);
- if(!groups.length && visible){$('import-mode').value='add';show('import-target-wrap',false);}
+ pendingSectionKey=key;
+ $('section-file').click();
 }
 function renderPack(){
  const n=pack.items.length;
@@ -205,7 +195,6 @@ function renderPack(){
   remove.addEventListener('click',()=>removeItems(new Set(group.items.map(q=>q.id)),'раздел «'+group.topic+'» ('+group.bank+')'));
   actions.append(update,remove);panel.append(actions);list.append(panel);
  }
- renderTargetSelect();
 }
 function download(name,obj){const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2500);}
 function normalizePack(value){return {schemaVersion:1,title:String(value.title||'Мой банк'),operator:String(value.operator||''),aircraft:String(value.aircraft||'B737 NG'),bankRevision:String(value.bankRevision||''),items:clone(value.items),importHistory:Array.isArray(value.importHistory)?clone(value.importHistory.slice(-50)):[]};}
@@ -253,7 +242,10 @@ function planImport(current,incoming,mode,currentProgress,targetKey=''){
   for(const q of incoming.items){
    if(!byId.has(q.id)){byId.set(q.id,next.items.length);next.items.push(clone(q));counts.added++;}
    else if(sameItem(next.items[byId.get(q.id)],q))counts.unchanged++;
-   else if(mode==='update'){next.items[byId.get(q.id)]=clone(q);changed.add(q.id);counts.updated++;}
+   else if(mode==='update'){
+    if(sectionKey(next.items[byId.get(q.id)])!==sectionKey(q))throw Error('В файле совпадает идентификатор вопроса из другого раздела. Исправь файл перед импортом.');
+    next.items[byId.get(q.id)]=clone(q);changed.add(q.id);counts.updated++;
+   }
    else counts.skipped++;
   }
  }
@@ -270,68 +262,89 @@ function ruCount(n,one,few,many){
  return v>=11&&v<=14?many:last===1?one:last>=2&&last<=4?few:many;
 }
 function importConfirmation(plan,mode,bankTitle,targetKey=''){
- const c=plan.counts,total=plan.next.items.length,previous=pack.items.length;
- const dialog=$('import-dialog');
- const section=mode==='replace-section',replace=mode==='replace',update=mode==='update';
+ const c=plan.counts,dialog=$('import-dialog');
+ const section=mode==='replace-section', restore=mode==='restore';
  const selected=section?sectionGroups().find(g=>g.key===targetKey):null;
- const heading=section?'Обновить «'+selected.topic+'»?':replace?'Заменить всю базу?':update?'Обновить вопросы?':'Добавить '+c.added+' '+ruCount(c.added,'вопрос','вопроса','вопросов')+'?';
- $('import-dialog-title').textContent=heading;
- $('import-dialog-subtitle').textContent='Из файла «'+String(bankTitle||'Новый банк').slice(0,90)+'»';
+ $('import-dialog-title').textContent=section?'Обновить «'+selected.topic+'»?':restore?'Восстановить базу?':'Добавить вопросы?';
+ $('import-dialog-subtitle').textContent='Файл: «'+String(bankTitle||'Банк вопросов').slice(0,90)+'»';
  const metrics=$('import-dialog-metrics');clear(metrics);
+ metrics.classList.toggle('three',!section&&!restore);
  function metric(label,value){const box=el('div',undefined,'dialog-metric');box.append(el('span',label,'dialog-metric-label'),el('strong',String(value),'dialog-metric-value'));metrics.append(box);}
- if(section){metric('Сейчас в разделе',selected.items.length);metric('Будет в разделе',selected.items.length+c.added-c.removed);}
- else{metric(replace?'Сейчас в базе':'Новых вопросов',replace?previous:c.added);metric(replace?'Будет после замены':'Всего после импорта',total);}
+ if(section){metric('Сейчас',selected.items.length);metric('Будет',selected.items.length+c.added-c.removed);}
+ else if(restore){metric('Сейчас в базе',pack.items.length);metric('В копии',plan.next.items.length);}
+ else{metric('Новых',c.added);metric('Изменено',c.updated);metric('Без изменений',c.unchanged);}
+ const updateWrap=$('import-dialog-update-wrap');
+ show('import-dialog-update-wrap',!section&&!restore&&c.updated>0);
+ $('import-dialog-update').checked=true;
  let note='';
  if(section){
-  note='Остальные разделы сохранятся.';
-  if(c.removed)note+=' '+c.removed+' '+ruCount(c.removed,'старый вопрос будет удалён','старых вопроса будут удалены','старых вопросов будут удалены')+'.';
-  if(c.updated)note+=' Прогресс '+c.updated+' '+ruCount(c.updated,'изменённого вопроса','изменённых вопросов','изменённых вопросов')+' начнётся заново.';
- }else if(replace){note='Это заменит всю текущую базу. Перед заменой рекомендуем сохранить резервную копию.';}
- else if(update){note='Изменённые вопросы будут обновлены, а их повторение начнётся заново. Остальная статистика сохранится.';}
- else{note='Все существующие вопросы и твоя статистика останутся без изменений.';const existing=c.unchanged+c.skipped;if(existing)note+=' '+existing+' '+ruCount(existing,'вопрос уже есть','вопроса уже есть','вопросов уже есть')+' в базе — повторно не добавляем.';}
+  note='Этот раздел будет полностью заменён. Остальные вопросы не изменятся.';
+  if(c.removed)note+=' Будет удалено старых вопросов: '+c.removed+'.';
+  if(c.updated)note+=' Для '+c.updated+' изменённых вопросов история повторений начнётся заново.';
+ }else if(restore){
+  note='Вопросы и статистика на этом устройстве будут заменены данными из копии. Перед восстановлением советуем сохранить текущую копию.';
+ }else{
+  note='Вопросы, которых нет в файле, останутся в базе. Прогресс новых и неизменённых вопросов сохранится.';
+  if(c.updated)note+=' Для исправленных вопросов история повторений начнётся заново.';
+ }
  $('import-dialog-note').textContent=note;
- $('import-dialog-accept').textContent=section?'Обновить раздел':replace?'Заменить базу':update?'Сохранить':'Добавить '+c.added;
- if(typeof dialog.showModal!=='function')return Promise.resolve(confirm(heading+'\n'+note));
+ $('import-dialog-accept').textContent=section?'Обновить раздел':restore?'Восстановить':'Импортировать';
+ if(typeof dialog.showModal!=='function')return Promise.resolve({accepted:confirm($('import-dialog-title').textContent+'\n'+note),updateExisting:!section&&!restore});
  return new Promise(resolve=>{
-  let completed=false;
+  let done=false;
   const yes=$('import-dialog-accept'),no=$('import-dialog-cancel');
-  function finish(accepted){if(completed)return;completed=true;yes.removeEventListener('click',accept);no.removeEventListener('click',cancel);dialog.removeEventListener('close',cancel);if(dialog.open)dialog.close();resolve(accepted);}
+  function finish(accepted){
+   if(done)return;done=true;
+   const updateExisting=$('import-dialog-update').checked;
+   yes.removeEventListener('click',accept);no.removeEventListener('click',cancel);dialog.removeEventListener('close',cancel);
+   if(dialog.open)dialog.close();
+   resolve({accepted,updateExisting});
+  }
   function accept(){finish(true);}function cancel(){finish(false);}
-  yes.addEventListener('click',accept);no.addEventListener('click',cancel);dialog.addEventListener('close',cancel);dialog.showModal();
+  yes.addEventListener('click',accept);no.addEventListener('click',cancel);dialog.addEventListener('close',cancel);
+  dialog.showModal();
  });
 }
-async function importFile(file){
- const msg=$('file-message');msg.className='';msg.textContent='';if(!file)return;
+async function importFile(file,mode='add',targetKey=''){
+ const msg=mode==='replace-section'?$('section-message'):mode==='restore'?$('backup-message'):$('file-message');
+ msg.className='';msg.textContent='';if(!file)return;
  try{
-  if(file.size>10*1024*1024)throw Error('Файл больше 10 МБ; нужна оптимизация хранения для больших банков.');
-  const raw=JSON.parse(await file.text()), incoming=raw.pack||raw;
+  if(file.size>10*1024*1024)throw Error('Файл слишком большой для текущего хранилища (максимум 10 МБ).');
+  const raw=JSON.parse(await file.text());
+  if(mode==='restore'&&(!raw.pack||!raw.progress||typeof raw.progress!=='object'))throw Error('Это не резервная копия приложения. Выбери файл, созданный кнопкой «Сохранить копию».');
+  const incoming=raw.pack||raw;
   const valid=validatePack(incoming);if(!valid.ok)throw Error(valid.error);
-  const mode=$('import-mode').value;
-  const targetKey=mode==='replace-section'?$('import-target').value:'';
-  const plan=planImport(pack,incoming,mode,progress,targetKey),c=plan.counts;
-  if(mode!=='replace'&&!c.added&&!c.updated&&!c.removed){
-   msg.className='inline-ok';
-   msg.textContent=c.skipped?`Новых вопросов нет. ${c.skipped} ${ruCount(c.skipped,'вопрос отличается','вопроса отличаются','вопросов отличаются')} от уже сохранённых. Чтобы применить изменения, выбери «Добавить и обновить вопросы».`:'Все вопросы из файла уже есть в твоей базе. Ничего менять не нужно.';
-   return;
+  if(mode==='add' && !incoming.items.length)throw Error('В этом файле нет вопросов.');
+  const planMode=mode==='add'?'update':mode==='restore'?'replace':mode;
+  let plan=planImport(pack,incoming,planMode,progress,targetKey);
+  const c=plan.counts;
+  if(mode==='add'&&!c.added&&!c.updated){msg.className='inline-ok';msg.textContent='Все вопросы из файла уже есть в базе. Новых изменений нет.';return;}
+  if(mode==='replace-section'&&!c.added&&!c.updated&&!c.removed){msg.className='inline-ok';msg.textContent='Этот раздел уже соответствует выбранному файлу.';return;}
+  const choice=await importConfirmation(plan,mode,incoming.title,targetKey);
+  if(!choice.accepted)return;
+  if(mode==='add'&&!choice.updateExisting){
+   plan=planImport(pack,incoming,'add',progress);
+   if(!plan.counts.added){msg.className='inline-ok';msg.textContent='Новых вопросов нет. Существующие оставлены без изменений.';return;}
   }
-  if(!await importConfirmation(plan,mode,incoming.title,targetKey))return;
-  let nextProgress=plan.nextProgress;
-  if(mode==='replace'&&raw.pack&&raw.progress&&typeof raw.progress==='object'&&confirm('Это резервная копия с прогрессом. Восстановить статистику ИЗ ФАЙЛА вместо текущей?'))nextProgress=progressFromBackup(raw.progress,plan.next.items.map(q=>q.id));
+  const nextProgress=mode==='restore'?progressFromBackup(raw.progress,plan.next.items.map(q=>q.id)):plan.nextProgress;
   commitState(plan.next,nextProgress);
-  updateAll();msg.className='inline-ok';
-  msg.textContent=mode==='replace'?'База восстановлена. Всего вопросов: '+pack.items.length+'.':mode==='replace-section'?'Раздел обновлён. Всего вопросов: '+pack.items.length+'.':'Готово! Новых: '+c.added+', обновлено: '+c.updated+'. Всего в базе: '+pack.items.length+'.';
- }catch(e){msg.className='inline-err';msg.textContent='Ошибка импорта: '+e.message;}
- finally{$('import-file').value='';}
+  updateAll();
+  msg.className='inline-ok';
+  if(mode==='restore')msg.textContent='Копия восстановлена. Вопросы и прогресс загружены.';
+  else if(mode==='replace-section')msg.textContent='Раздел обновлён. Остальные вопросы сохранены.';
+  else msg.textContent='Готово! Добавлено: '+plan.counts.added+', исправлено: '+plan.counts.updated+'. Всего вопросов: '+pack.items.length+'.';
+ }catch(e){msg.className='inline-err';msg.textContent='Не удалось загрузить файл: '+e.message;}
 }
 function updateAll(){fillSelect('quiz-topic');fillSelect('card-topic');renderStats();renderPack();quizReset();stopCards();}
 function boot(){
  document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>selectTab(b.dataset.tab)));
  $('start-quiz').addEventListener('click',quizStart);$('check-answer').addEventListener('click',quizCheck);$('next-question').addEventListener('click',quizNext);$('stop-quiz').addEventListener('click',quizFinish);$('restart-quiz').addEventListener('click',quizReset);
  $('start-cards').addEventListener('click',cardsStart);$('reveal-card').addEventListener('click',()=>{cards.revealed=true;renderCard();});$('again-card').addEventListener('click',()=>cardAnswer(false));$('know-card').addEventListener('click',()=>cardAnswer(true));$('stop-cards').addEventListener('click',stopCards);
- $('import-file').addEventListener('change',e=>importFile(e.target.files[0]));
+ $('import-file').addEventListener('change',async e=>{try{await importFile(e.target.files[0],'add');}finally{e.target.value='';}});
+ $('section-file').addEventListener('change',async e=>{const key=pendingSectionKey;try{await importFile(e.target.files[0],'replace-section',key);}finally{e.target.value='';pendingSectionKey='';}});
+ $('restore-file').addEventListener('change',async e=>{try{await importFile(e.target.files[0],'restore');}finally{e.target.value='';}});
  $('export-backup').addEventListener('click',()=>download('b737-trainer-backup.json',{pack,progress,exportedAt:new Date().toISOString()}));
  $('export-template').addEventListener('click',()=>download('b737-trainer-json-example.json',EXAMPLE_BANK));
- $('import-mode').addEventListener('change',()=>renderTargetSelect());
  updateAll();selectTab('quiz');
  const conn=$('connection'); const syncConn=()=>conn.textContent=navigator.onLine?'◉ Режим сети':'✓ Офлайн';window.addEventListener('online',syncConn);window.addEventListener('offline',syncConn);syncConn();
  if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))navigator.serviceWorker.register('./sw.js').catch(e=>{console.warn('Service worker registration failed',e);});
