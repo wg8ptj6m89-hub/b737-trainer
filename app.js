@@ -20,7 +20,21 @@ function readStored(key, fallback){try {const d=JSON.parse(localStorage.getItem(
 let pack=readStored(PACK_KEY,DEMO);
 let progress=readStored(PROGRESS_KEY,{answered:0,correct:0,wrongIds:[],cards:{}});
 if(!validatePack(pack).ok) pack=clone(DEMO);
-function save(){localStorage.setItem(PACK_KEY,JSON.stringify(pack));localStorage.setItem(PROGRESS_KEY,JSON.stringify(progress));}
+function save(){localStorage.setItem(PROGRESS_KEY,JSON.stringify(progress));}
+// Only publish a new bank in memory after both writes have succeeded.
+function commitState(nextPack,nextProgress){
+ const previousPack=localStorage.getItem(PACK_KEY), previousProgress=localStorage.getItem(PROGRESS_KEY);
+ try{
+  localStorage.setItem(PACK_KEY,JSON.stringify(nextPack));
+  localStorage.setItem(PROGRESS_KEY,JSON.stringify(nextProgress));
+ }catch(e){
+  try{if(previousPack===null)localStorage.removeItem(PACK_KEY);else localStorage.setItem(PACK_KEY,previousPack);
+      if(previousProgress===null)localStorage.removeItem(PROGRESS_KEY);else localStorage.setItem(PROGRESS_KEY,previousProgress);}catch(_ignored){}
+  throw Error('Недостаточно места для сохранения базы. Экспортируй резервную копию и уменьши размер импорта. '+(e.message||''));
+ }
+ pack=nextPack;progress=nextProgress;
+}
+
 function $(id){return document.getElementById(id);}
 function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
 function clear(n){n.replaceChildren();}
@@ -98,7 +112,7 @@ function quizReset(){session=null;show('quiz-active',false);show('quiz-finish',f
 let cards=null;
 function cardsStart(){
  const t=$('card-topic').value, type=$('card-type').value;
- const items=pack.items.filter(q=>(t==='all'||q.topic===t)&&(type==='all'||q.type===type));
+ const items=pack.items.filter(q=>(t==='all'||q.topic===t)&&(type==='all'||(type==='system'?q.type==='quiz':q.type===type)));
  if(!items.length){alert('Нет карточек по выбранной теме и типу.');return;}
  // Due cards first, then the rest; both available offline.
  const now=Date.now();items.sort((a,b)=>(progress.cards[a.id]?.next||0)-(progress.cards[b.id]?.next||0));
@@ -118,25 +132,78 @@ function cardAnswer(known){if(!cards)return;const it=cards.items[cards.index];co
 function stopCards(){cards=null;show('cards-active',false);show('cards-start',true);}
 function selectTab(id){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));document.querySelectorAll('.tab-content').forEach(p=>p.classList.toggle('hidden',p.id!==id));if(id==='library')renderPack();}
 function renderPack(){const n=pack.items.length;const verified=pack.items.filter(q=>q.source?.verified).length;
- $('pack-info').textContent=`${pack.title||'Без названия'} · ${pack.aircraft||'тип не указан'} · оператор: ${pack.operator||'не указан'} · редакция банка: ${pack.bankRevision||'не указана'}. Вопросов и карточек: ${n}; отмечено автором банка как сверенные: ${verified}.`;
+ $('pack-info').textContent=`${pack.title||'Без названия'} · ${pack.aircraft||'тип не указан'} · Вопросов и карточек: ${n}; отмечено автором банка как сверенные: ${verified}.`;
+ const byTopic=new Map();for(const q of pack.items)byTopic.set(q.topic,(byTopic.get(q.topic)||0)+1);
+ $('pack-topics').textContent=byTopic.size?[...byTopic].sort((a,b)=>a[0].localeCompare(b[0],'ru')).map(([t,n])=>`${t}: ${n}`).join(' · '):'Банк пока пуст.';
 }
 function download(name,obj){const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json;charset=utf-8'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2500);}
-function normalizePack(value){return {schemaVersion:1,title:String(value.title||'Мой банк'),operator:String(value.operator||''),aircraft:String(value.aircraft||'B737 NG'),bankRevision:String(value.bankRevision||''),items:value.items};}
-async function importFile(file){const msg=$('file-message');msg.className='';msg.textContent='';if(!file)return;
- try{
-  if(file.size>10*1024*1024)throw Error('Файл больше 10 МБ. Для больших банков понадобится отдельная база IndexedDB.');
-  const raw=JSON.parse(await file.text());const p=raw.pack || raw;const valid=validatePack(p);if(!valid.ok)throw Error(valid.error);
-  if(!confirm(`Заменить текущий банк на «${p.title||'Без названия'}» (${p.items.length} карточек)? Перед заменой можно экспортировать резервную копию.`))return;
-  const next=normalizePack(p);const prevIds=new Set(pack.items.map(q=>q.id));
-  pack=next;
-  if(raw.pack && raw.progress && typeof raw.progress==='object' && confirm('В резервной копии есть статистика. Восстановить и её?')){
-   const pr=raw.progress;progress={answered:Number(pr.answered)||0,correct:Number(pr.correct)||0,wrongIds:Array.isArray(pr.wrongIds)?pr.wrongIds.filter(x=>typeof x==='string'&&next.items.some(q=>q.id===x)):[],cards:pr.cards&&typeof pr.cards==='object'?pr.cards:{}};
-  }else{
-   const keepIds=new Set(next.items.map(q=>q.id));progress.wrongIds=progress.wrongIds.filter(x=>keepIds.has(x));progress.cards=Object.fromEntries(Object.entries(progress.cards).filter(([id])=>keepIds.has(id)));
+function normalizePack(value){return {schemaVersion:1,title:String(value.title||'Мой банк'),operator:String(value.operator||''),aircraft:String(value.aircraft||'B737 NG'),bankRevision:String(value.bankRevision||''),items:clone(value.items),importHistory:Array.isArray(value.importHistory)?clone(value.importHistory.slice(-50)):[]};}
+// Compare semantic content independent of JSON property ordering.
+function canonical(v){if(Array.isArray(v))return v.map(canonical);if(v&&typeof v==='object')return Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])]));return v;}
+function sameItem(a,b){return JSON.stringify(canonical(a))===JSON.stringify(canonical(b));}
+function filteredProgress(base,keepIds,changedIds){
+ const p=clone(base), allowed=new Set(keepIds);
+ p.wrongIds=(Array.isArray(p.wrongIds)?p.wrongIds:[]).filter(id=>allowed.has(id)&&!changedIds.has(id));
+ p.cards=Object.fromEntries(Object.entries(p.cards&&typeof p.cards==='object'?p.cards:{}).filter(([id])=>allowed.has(id)&&!changedIds.has(id)));
+ return p;
+}
+function progressFromBackup(value,ids){
+ const valid=new Set(ids);const answered=Math.max(0,Math.floor(Number(value.answered)||0));
+ const correct=Math.min(answered,Math.max(0,Math.floor(Number(value.correct)||0)));
+ return {answered,correct,wrongIds:[...new Set(Array.isArray(value.wrongIds)?value.wrongIds.filter(x=>typeof x==='string'&&valid.has(x)):[])],cards:Object.fromEntries(Object.entries(value.cards&&typeof value.cards==='object'?value.cards:{}).filter(([k,v])=>valid.has(k)&&v&&typeof v==='object'&&Number.isFinite(v.next)&&Number.isFinite(v.level)).map(([k,v])=>[k,{next:v.next,level:Math.max(0,Math.min(4,Math.floor(v.level)))}]))};
+}
+function planImport(current,incoming,mode,currentProgress){
+ const next=mode==='replace'?normalizePack(incoming):normalizePack(current);
+ const byId=new Map(next.items.map((v,i)=>[v.id,i]));
+ const changed=new Set(),counts={added:0,updated:0,unchanged:0,skipped:0,removed:0};
+ if(mode==='replace'){
+  const old=new Map(current.items.map(q=>[q.id,q]));
+  const nextIds=new Set(next.items.map(q=>q.id));
+  for(const q of next.items){if(!old.has(q.id))counts.added++;else if(sameItem(old.get(q.id),q))counts.unchanged++;else{counts.updated++;changed.add(q.id);}}
+  for(const q of current.items)if(!nextIds.has(q.id))counts.removed++;
+ }else{
+  for(const q of incoming.items){
+   if(!byId.has(q.id)){byId.set(q.id,next.items.length);next.items.push(clone(q));counts.added++;}
+   else if(sameItem(next.items[byId.get(q.id)],q))counts.unchanged++;
+   else if(mode==='update'){next.items[byId.get(q.id)]=clone(q);changed.add(q.id);counts.updated++;}
+   else counts.skipped++;
   }
-  save();updateAll();msg.className='inline-ok';msg.textContent=`Импорт выполнен локально: ${pack.items.length} карточек.`;
+  next.title='Накопительная база B737 NG';next.bankRevision='Сборная: редакции указаны в источниках вопросов';
+  next.importHistory.push({title:String(incoming.title||'Без названия'),revision:String(incoming.bankRevision||''),importedAt:new Date().toISOString(),added:counts.added,updated:counts.updated,skipped:counts.skipped});
+  next.importHistory=next.importHistory.slice(-50);
+ }
+ const valid=validatePack(next);if(!valid.ok)throw Error(valid.error);
+ const ids=next.items.map(q=>q.id);
+ return {next,counts,changed,nextProgress:filteredProgress(currentProgress,ids,changed)};
+}
+async function importFile(file){
+ const msg=$('file-message');msg.className='';msg.textContent='';if(!file)return;
+ try{
+  if(file.size>10*1024*1024)throw Error('Файл больше 10 МБ; нужна оптимизация хранения для больших банков.');
+  const raw=JSON.parse(await file.text()), incoming=raw.pack||raw;
+  const valid=validatePack(incoming);if(!valid.ok)throw Error(valid.error);
+  const mode=$('import-mode').value;
+  const plan=planImport(pack,incoming,mode,progress),c=plan.counts;
+  if(mode!=='replace'&&!c.added&&!c.updated){
+   msg.className='inline-ok';msg.textContent=`Изменений нет. Совпадающих без изменений: ${c.unchanged}; конфликтов с другими данными: ${c.skipped}. Для обновления существующих ID выбери соответствующий режим.`;return;
+  }
+  const confirmation=`Режим: ${mode==='add'?'только новые ID':mode==='update'?'добавить и обновить ID':'полная замена'}.
+Добавить: ${c.added}; обновить: ${c.updated}; уже совпадают: ${c.unchanged}; пропустить конфликты: ${c.skipped}; удалить: ${c.removed}.
+${c.updated?'Прогресс изменённых карточек будет сброшен; общая статистика сохранится.\n':''}Продолжить? Перед крупным импортом рекомендуется экспорт резервной копии.`;
+  if(!confirm(confirmation))return;
+  let nextProgress=plan.nextProgress;
+  if(mode==='replace'&&raw.pack&&raw.progress&&typeof raw.progress==='object'&&confirm('Это резервная копия с прогрессом. Восстановить статистику ИЗ ФАЙЛА вместо текущей?'))nextProgress=progressFromBackup(raw.progress,plan.next.items.map(q=>q.id));
+  commitState(plan.next,nextProgress);
+  updateAll();msg.className='inline-ok';msg.textContent=`Готово. Добавлено: ${c.added}, обновлено: ${c.updated}, пропущено: ${c.skipped}, удалено: ${c.removed}. Всего: ${pack.items.length}.`;
  }catch(e){msg.className='inline-err';msg.textContent='Ошибка импорта: '+e.message;}
  finally{$('import-file').value='';}
+}
+function removeDemo(){
+ const ids=new Set(pack.items.filter(q=>q.id.startsWith('demo-')&&q.source?.revision==='ДЕМО').map(q=>q.id));
+ if(!ids.size){$('file-message').textContent='Демонстрационных карточек нет.';return;}
+ if(!confirm(`Удалить ${ids.size} демонстрационных карточек? Остальные вопросы и статистика сохранятся.`))return;
+ try{const next=normalizePack(pack);next.items=next.items.filter(q=>!ids.has(q.id));const p=filteredProgress(progress,next.items.map(q=>q.id),new Set());commitState(next,p);updateAll();$('file-message').className='inline-ok';$('file-message').textContent=`Удалено демонстрационных карточек: ${ids.size}.`;}
+ catch(e){$('file-message').className='inline-err';$('file-message').textContent=e.message;}
 }
 function updateAll(){fillSelect('quiz-topic');fillSelect('card-topic');renderStats();renderPack();quizReset();stopCards();}
 function boot(){
@@ -144,9 +211,10 @@ function boot(){
  $('start-quiz').addEventListener('click',quizStart);$('check-answer').addEventListener('click',quizCheck);$('next-question').addEventListener('click',quizNext);$('stop-quiz').addEventListener('click',quizFinish);$('restart-quiz').addEventListener('click',quizReset);
  $('start-cards').addEventListener('click',cardsStart);$('reveal-card').addEventListener('click',()=>{cards.revealed=true;renderCard();});$('again-card').addEventListener('click',()=>cardAnswer(false));$('know-card').addEventListener('click',()=>cardAnswer(true));$('stop-cards').addEventListener('click',stopCards);
  $('import-file').addEventListener('change',e=>importFile(e.target.files[0]));
+ $('remove-demo').addEventListener('click',removeDemo);
  $('export-backup').addEventListener('click',()=>download('b737-trainer-backup.json',{pack,progress,exportedAt:new Date().toISOString()}));
  $('export-template').addEventListener('click',()=>download('b737-trainer-example-bank.json',DEMO));
- $('reset-demo').addEventListener('click',()=>{if(confirm('Заменить текущую базу демонстрационной? Сначала экспортируй резервную копию.')){pack=clone(DEMO);progress={answered:0,correct:0,wrongIds:[],cards:{}};save();updateAll();$('file-message').textContent='Восстановлена демонстрационная база.';}});
+ $('reset-demo').addEventListener('click',()=>{if(confirm('ПОЛНОСТЬЮ заменить базу и обнулить статистику? Сначала экспортируй резервную копию.')){try{commitState(clone(DEMO),{answered:0,correct:0,wrongIds:[],cards:{}});updateAll();$('file-message').textContent='Восстановлена демонстрационная база.';}catch(e){$('file-message').textContent=e.message;}}});
  updateAll();selectTab('quiz');
  const conn=$('connection'); const syncConn=()=>conn.textContent=navigator.onLine?'◉ Режим сети':'✓ Офлайн';window.addEventListener('online',syncConn);window.addEventListener('offline',syncConn);syncConn();
  if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))navigator.serviceWorker.register('./sw.js').catch(e=>{console.warn('Service worker registration failed',e);});
