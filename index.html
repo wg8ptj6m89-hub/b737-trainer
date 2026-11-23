@@ -79,6 +79,17 @@
     .delete-dialog .dialog-subtitle{margin:6px 0 16px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;line-height:1.5;overflow-wrap:anywhere}
     .delete-dialog .dialog-note{margin:6px 0 22px}
     .delete-dialog .dialog-actions button{min-height:48px}
+
+    .language-setting{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}
+    .language-setting>span{font-size:13px;color:#4b5e78;font-weight:700}
+    .lang-buttons{display:flex;gap:4px;background:#eef2f8;border-radius:11px;padding:4px}
+    .lang-buttons button{border:0;border-radius:8px;background:transparent;font-weight:750;font-size:13px;color:#53657f;padding:8px 13px;min-width:45px}
+    .lang-buttons button.selected{background:#fff;color:#183658;box-shadow:0 1px 5px rgba(10,25,45,.12)}
+    .source-details{border-top:1px solid var(--line);padding-top:12px;margin-top:16px;font-size:12px;color:var(--sub);line-height:1.45}
+    .source-summary{cursor:pointer;list-style:none;display:flex;gap:12px;align-items:center;justify-content:space-between}
+    .source-summary::-webkit-details-marker{display:none}
+    .source-more{color:#2d60bb;font-weight:650;white-space:nowrap}
+    .source-extra{margin-top:10px;border-radius:10px;background:#f4f7fc;padding:12px;display:grid;gap:7px}
   </style>
 </head>
 <body>
@@ -90,6 +101,7 @@
   <div id="quiz-start" class="card">
     <h1>Проверка знаний</h1><p class="muted">Выбери тему и тип вопросов. Правильные ответы и пояснения показываются после проверки.</p>
     <div class="grid" id="stats"></div><div style="height:14px"></div>
+    <div class="language-setting"><span>Язык вопросов</span><div class="lang-buttons" role="group" aria-label="Язык вопросов"><button type="button" data-question-lang="ru" aria-pressed="true">RU</button><button type="button" data-question-lang="en" aria-pressed="false">EN</button></div></div>
     <div class="control"><label for="quiz-topic">Система / тема</label><select id="quiz-topic"></select></div>
     <div class="control"><label for="quiz-set">Какие вопросы</label><select id="quiz-set"><option value="all">Все вопросы</option><option value="wrong">Только вопросы с ошибками</option></select></div>
     <div class="actions"><button class="primary" id="start-quiz">Начать тест</button></div>
@@ -99,6 +111,7 @@
  </section>
  <section id="cards" class="tab-content hidden">
   <div id="cards-start" class="card"><h1>Карточки для повторения</h1><p class="muted">Вспомни ответ самостоятельно, затем открой его. Поддерживаются Memory Items, Limitations, Systems и Interview.</p>
+   <div class="language-setting"><span>Язык вопросов</span><div class="lang-buttons" role="group" aria-label="Язык вопросов"><button type="button" data-question-lang="ru" aria-pressed="true">RU</button><button type="button" data-question-lang="en" aria-pressed="false">EN</button></div></div>
    <div class="control"><label for="card-topic">Тема</label><select id="card-topic"></select></div><div class="control"><label for="card-type">Тип карточек</label><select id="card-type"><option value="all">Все карточки</option><option value="memory">Memory Items</option><option value="limitation">Limitations</option><option value="interview">Interview</option><option value="system">Systems</option></select></div>
    <div class="actions"><button class="primary" id="start-cards">Повторять</button></div>
   </div>
