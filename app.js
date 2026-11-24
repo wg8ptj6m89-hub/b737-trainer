@@ -474,6 +474,110 @@ function importConfirmation(plan,mode,bankTitle,targetKey=''){
   dialog.showModal();
  });
 }
+
+const MAX_IMPORT_FILES=40,MAX_IMPORT_BYTES=25*1024*1024,MAX_ZIP_ENTRIES=120;
+async function readZipQuestionPacks(file,budget){
+ const data=new Uint8Array(await file.arrayBuffer()),view=new DataView(data.buffer,data.byteOffset,data.byteLength);
+ let eocd=-1;
+ for(let p=data.length-22;p>=Math.max(0,data.length-22-65535);p--){
+  if(view.getUint32(p,true)===0x06054b50){eocd=p;break;}
+ }
+ if(eocd<0)throw Error('Не найден каталог ZIP: '+file.name);
+ const entries=view.getUint16(eocd+10,true),size=view.getUint32(eocd+12,true),start=view.getUint32(eocd+16,true);
+ if(view.getUint16(eocd+4,true)!==0||view.getUint16(eocd+6,true)!==0||entries!==view.getUint16(eocd+8,true))throw Error('Многотомные ZIP не поддерживаются.');
+ if(entries>MAX_ZIP_ENTRIES||start+size>data.length)throw Error('ZIP слишком большой или повреждён.');
+ let ptr=start;const packs=[],decoder=new TextDecoder('utf-8',{fatal:true});
+ for(let i=0;i<entries;i++){
+  if(ptr+46>data.length||view.getUint32(ptr,true)!==0x02014b50)throw Error('Повреждён каталог ZIP.');
+  const flags=view.getUint16(ptr+8,true),method=view.getUint16(ptr+10,true),compressed=view.getUint32(ptr+20,true),uncompressed=view.getUint32(ptr+24,true);
+  const nameLen=view.getUint16(ptr+28,true),extraLen=view.getUint16(ptr+30,true),commentLen=view.getUint16(ptr+32,true),local=view.getUint32(ptr+42,true);
+  const end=ptr+46+nameLen+extraLen+commentLen;
+  if(end>data.length)throw Error('Повреждён каталог ZIP.');
+  const name=decoder.decode(data.subarray(ptr+46,ptr+46+nameLen));ptr=end;
+  if(!/\.json$/i.test(name)||name.startsWith('__MACOSX/'))continue;
+  if(flags&1)throw Error('ZIP с паролем не поддерживается: '+name);
+  if(compressed===0xffffffff||uncompressed===0xffffffff)throw Error('ZIP64 не поддерживается.');
+  if(method!==0&&method!==8)throw Error('Неподдерживаемый тип сжатия: '+name);
+  if(uncompressed>MAX_IMPORT_BYTES||budget.used+uncompressed>MAX_IMPORT_BYTES)throw Error('В архиве слишком много данных.');
+  if(local+30>data.length||view.getUint32(local,true)!==0x04034b50)throw Error('Повреждён файл внутри ZIP.');
+  const offset=local+30+view.getUint16(local+26,true)+view.getUint16(local+28,true);
+  if(offset+compressed>data.length)throw Error('Повреждён файл внутри ZIP.');
+  const part=data.slice(offset,offset+compressed);
+  let decoded;
+  if(method===0)decoded=part;
+  else{
+   if(typeof DecompressionStream!=='function')throw Error('Распаковка ZIP не поддерживается этой версией браузера. Можно импортировать JSON напрямую.');
+   try{
+    const stream=new Blob([part]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    decoded=new Uint8Array(await new Response(stream).arrayBuffer());
+   }catch(e){throw Error('Не удалось распаковать '+name+': '+e.message);}
+  }
+  if(decoded.length!==uncompressed)throw Error('ZIP содержит файл неправильного размера: '+name);
+  budget.used+=decoded.length;
+  let parsed;
+  try{parsed=JSON.parse(decoder.decode(decoded));}catch(e){throw Error('Некорректный JSON в архиве ('+name+'): '+e.message);}
+  packs.push({name:file.name+' / '+name,pack:parsed.pack||parsed});
+ }
+ if(!packs.length)throw Error('В архиве '+file.name+' не найдено JSON-файлов с вопросами.');
+ return packs;
+}
+async function readImportPacks(files){
+ if(!files.length)return [];
+ if(files.length>MAX_IMPORT_FILES)throw Error('Выбери не более '+MAX_IMPORT_FILES+' файлов за один раз.');
+ const budget={used:0},packs=[];
+ for(const file of files){
+  if(file.size>MAX_IMPORT_BYTES)throw Error('Слишком большой файл: '+file.name);
+  if(/\.zip$/i.test(file.name)){packs.push(...await readZipQuestionPacks(file,budget));continue;}
+  if(!/\.json$/i.test(file.name))throw Error('Поддерживаются только JSON и ZIP: '+file.name);
+  budget.used+=file.size;
+  if(budget.used>MAX_IMPORT_BYTES)throw Error('Суммарный объём файлов превышает 25 МБ.');
+  let parsed;
+  try{parsed=JSON.parse(await file.text());}catch(e){throw Error('Некорректный JSON ('+file.name+'): '+e.message);}
+  packs.push({name:file.name,pack:parsed.pack||parsed});
+ }
+ if(packs.length>MAX_ZIP_ENTRIES)throw Error('Слишком много банков в одном импорте.');
+ const combined={schemaVersion:1,title:packs.length===1?String(packs[0].pack.title||packs[0].name):packs.length+' банков из '+files.length+' файлов',operator:'',aircraft:'B737 NG',bankRevision:'',items:[]};
+ const byId=new Map();
+ for(const entry of packs){
+  const valid=validatePack(entry.pack);
+  if(!valid.ok)throw Error(entry.name+': '+valid.error);
+  for(const item of entry.pack.items){
+   const previous=byId.get(item.id);
+   if(previous){
+    if(JSON.stringify(previous.item)!==JSON.stringify(item))throw Error('ID '+item.id+' различается в файлах '+previous.name+' и '+entry.name+'. Импорт отменён.');
+    continue;
+   }
+   byId.set(item.id,{item,name:entry.name});
+   combined.items.push(item);
+  }
+ }
+ const check=validatePack(combined);
+ if(!check.ok)throw Error(check.error);
+ return {combined,fileCount:files.length,bankCount:packs.length};
+}
+async function importMany(files){
+ const msg=$('file-message');msg.className='';msg.textContent='';
+ if(!files||!files.length)return;
+ try{
+  const read=await readImportPacks(Array.from(files));
+  const incoming=read.combined;
+  if(!incoming.items.length)throw Error('В выбранных файлах нет вопросов.');
+  let plan=planImport(pack,incoming,'update',progress);
+  if(!plan.counts.added&&!plan.counts.updated){msg.className='inline-ok';msg.textContent='Все вопросы уже есть в библиотеке. Новых изменений нет.';return;}
+  const title=read.bankCount===1?incoming.title:read.bankCount+' банков · '+read.fileCount+' '+ruCount(read.fileCount,'файл','файла','файлов');
+  const choice=await importConfirmation(plan,'add',title,'');
+  if(!choice.accepted)return;
+  if(!choice.updateExisting){
+   plan=planImport(pack,incoming,'add',progress);
+   if(!plan.counts.added){msg.className='inline-ok';msg.textContent='Новых вопросов нет. Существующие оставлены без изменений.';return;}
+  }
+  commitState(plan.next,plan.nextProgress);
+  updateAll();
+  msg.className='inline-ok';
+  msg.textContent='Готово! Обработано банков: '+read.bankCount+'. Добавлено: '+plan.counts.added+', обновлено: '+plan.counts.updated+'. Всего вопросов: '+pack.items.length+'.';
+ }catch(e){msg.className='inline-err';msg.textContent='Не удалось добавить вопросы: '+e.message;}
+}
+
 async function importFile(file,mode='add',targetKey=''){
  const msg=mode==='replace-section'?$('section-message'):mode==='restore'?$('backup-message'):$('file-message');
  msg.className='';msg.textContent='';if(!file)return;
@@ -509,7 +613,7 @@ function boot(){
  document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>selectTab(b.dataset.tab)));
  $('start-quiz').addEventListener('click',quizStart);$('check-answer').addEventListener('click',quizCheck);$('next-question').addEventListener('click',quizNext);$('stop-quiz').addEventListener('click',quizFinish);$('restart-quiz').addEventListener('click',quizReset);
  $('start-cards').addEventListener('click',cardsStart);$('reveal-card').addEventListener('click',()=>{cards.revealed=true;renderCard();});$('again-card').addEventListener('click',()=>cardAnswer(false));$('know-card').addEventListener('click',()=>cardAnswer(true));$('stop-cards').addEventListener('click',()=>stopCards());
- $('import-file').addEventListener('change',async e=>{try{await importFile(e.target.files[0],'add');}finally{e.target.value='';}});
+ $('import-file').addEventListener('change',async e=>{try{await importMany(e.target.files);}finally{e.target.value='';}});
  $('section-file').addEventListener('change',async e=>{const key=pendingSectionKey;try{await importFile(e.target.files[0],'replace-section',key);}finally{e.target.value='';pendingSectionKey='';}});
  $('restore-file').addEventListener('change',async e=>{try{await importFile(e.target.files[0],'restore');}finally{e.target.value='';}});
  $('export-backup').addEventListener('click',()=>download('b737-trainer-backup.json',{pack,progress,exportedAt:new Date().toISOString()}));
