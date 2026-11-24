@@ -153,8 +153,8 @@
   <div class="card">
    <h1>Мои вопросы</h1>
    <p id="pack-info" class="muted"></p>
-   <label class="filelabel library-import">＋ Добавить вопросы <input type="file" accept=".json,application/json" id="import-file"></label>
-   <div id="file-message" role="status" aria-live="polite"></div>
+   <label class="filelabel library-import">＋ Добавить вопросы <input type="file" accept=".json,.zip,application/json,application/zip,application/x-zip-compressed" multiple id="import-file"></label>
+   <p class="fine" style="margin:0 0 10px">Один JSON, несколько JSON или ZIP с банками вопросов — выбирай всё сразу.</p><div id="file-message" role="status" aria-live="polite"></div>
    <div id="bank-list"></div>
    <div id="section-message" role="status" aria-live="polite"></div>
    <input type="file" accept=".json,application/json" id="section-file" hidden>
@@ -170,7 +170,7 @@
    <details class="help-details">
     <summary>Помощь</summary>
     <p>Всё хранится на этом устройстве. Если приложение удалить или очистить его данные, вопросы и прогресс могут исчезнуть. Регулярно сохраняй копию.</p>
-    <p>«Добавить вопросы» добавляет новые карточки. Если в файле есть исправленные версии старых вопросов, ты сам решаешь, применять ли исправления.</p>
+    <p>«Добавить вопросы» принимает один JSON, несколько JSON одновременно либо ZIP с JSON-файлами. ZIP распаковывается на устройстве, без отправки файлов на сервер. При совпадениях ID приложение предложит применить исправления.</p>
     <p>«Обновить раздел» полностью заменяет выбранный раздел. Старые вопросы, отсутствующие в новом файле, исчезнут из этого раздела; остальные разделы останутся.</p>
     <p>Импорт работает локально. Не публикуй служебные руководства и закрытые материалы в GitHub без разрешения.</p>
     <button class="secondary" id="export-template" type="button">Пример формата JSON</button>
