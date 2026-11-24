@@ -114,16 +114,19 @@
     .backup-actions .secondary,.backup-actions .filelabel{font-size:14px;font-weight:700;line-height:1.3;min-height:62px;padding:12px;text-align:center}
     .card-comment{font-size:14px;line-height:1.5;color:#52657d;margin:12px 0 4px;white-space:pre-wrap}
     .card-actions-hint{text-align:center;margin-top:8px}
+    .scope-help{margin:0 0 12px;padding:10px 13px;border-radius:11px;background:#f2f6fc;color:#63758d}
+    .scope-help p{font-size:12px;line-height:1.5;margin:3px 0 5px}
+    .scope-help strong{color:#354e70}
   </style>
 </head>
 <body>
 <header class="top"><div class="top-inner"><div><div class="brand">737 NG · Offline Trainer</div><div class="tagline">Systems · Memory Items · Limitations · Interview</div></div><div class="state" id="connection">Проверка…</div></div></header>
 <main>
  <div class="safe-note">Учебный тренажёр · не заменяет действующие руководства и процедуры</div>
- <nav class="tabs" aria-label="Разделы"><button class="tab active" data-tab="quiz">Тесты</button><button class="tab" data-tab="cards">Карточки</button><button class="tab" data-tab="library">Библиотека</button></nav>
+ <nav class="tabs" aria-label="Разделы"><button class="tab active" data-tab="quiz">Тесты</button><button class="tab" data-tab="cards">Повторение</button><button class="tab" data-tab="library">Библиотека</button></nav>
  <section id="quiz" class="tab-content">
   <div id="quiz-start" class="card">
-    <h1>Проверка знаний</h1><p class="muted">Выбери тему и тип вопросов. Правильные ответы и пояснения показываются после проверки.</p>
+    <h1>Тесты</h1><p class="muted">Выбери ответ из вариантов и проверь себя. После проверки появится результат и краткое объяснение.</p>
     <div class="grid" id="stats"></div><div style="height:14px"></div>
     <div class="language-setting"><span>Язык вопросов</span><div class="lang-buttons" role="group" aria-label="Язык вопросов"><button type="button" data-question-lang="en" aria-pressed="true">EN</button><button type="button" data-question-lang="ru" aria-pressed="false">RU</button></div></div>
     <div class="control"><label for="quiz-topic">Система / тема</label><select id="quiz-topic"></select></div>
@@ -134,14 +137,17 @@
   <div id="quiz-finish" class="card hidden"><h1>Тест завершён</h1><div id="quiz-summary"></div><div class="actions"><button class="primary" id="restart-quiz">К выбору вопросов</button></div></div>
  </section>
  <section id="cards" class="tab-content hidden">
-  <div id="cards-start" class="card"><h1>Карточки для повторения</h1><p class="muted">Вспомни ответ самостоятельно, затем открой его. Поддерживаются Memory Items, Limitations, Systems и Interview.</p>
+  <div id="cards-start" class="card"><h1>Повторение</h1><p class="muted">Вспомни ответ без вариантов, затем открой его. Приложение поможет возвращаться к вопросам по расписанию.</p>
    <div class="language-setting"><span>Язык вопросов</span><div class="lang-buttons" role="group" aria-label="Язык вопросов"><button type="button" data-question-lang="en" aria-pressed="true">EN</button><button type="button" data-question-lang="ru" aria-pressed="false">RU</button></div></div>
    <div class="control"><label for="card-topic">Тема</label><select id="card-topic"></select></div><div class="control"><label for="card-type">Тип карточек</label><select id="card-type"><option value="all">Все типы</option><option value="memory">Memory Items</option><option value="limitation">Limitations</option><option value="interview">Interview</option><option value="system">Systems</option></select></div>
-   <div class="control"><label for="card-scope">Режим</label><select id="card-scope"><option value="due">На сегодня</option><option value="all">Все карточки</option></select></div>
-   <p class="fine">«Повторить» — вопрос вернётся через несколько карточек. «Знаю» — вернётся в другой день.</p>
+   <div class="control"><label for="card-scope">Что повторять</label><select id="card-scope"><option value="due">На сегодня</option><option value="all">Все карточки</option></select></div>
+   <div class="scope-help">
+    <p><strong>На сегодня</strong> — новые вопросы и те, которые пора повторить.</p>
+    <p><strong>Все карточки</strong> — любые вопросы из выбранной темы, независимо от расписания.</p>
+   </div>
    <div class="actions"><button class="primary" id="start-cards">Начать повторение</button></div><div id="cards-message" class="inline-ok" role="status" aria-live="polite"></div>
   </div>
-  <div id="cards-active" class="card hidden"><div class="muted" id="card-count"></div><div id="card-content"></div><div class="actions"><button class="primary" id="reveal-card">Показать ответ</button><button class="secondary hidden" id="again-card">Повторить</button><button class="primary hidden" id="know-card">Знаю</button><button class="secondary" id="stop-cards">Закончить</button></div><p class="fine card-actions-hint">«Повторить» — ещё раз сегодня · «Знаю» — позже</p></div>
+  <div id="cards-active" class="card hidden"><div class="muted" id="card-count"></div><div id="card-content"></div><div class="actions"><button class="primary" id="reveal-card">Показать ответ</button><button class="secondary hidden" id="again-card">Повторить</button><button class="primary hidden" id="know-card">Знаю</button><button class="secondary" id="stop-cards">Закончить</button></div><p id="card-actions-hint" class="fine card-actions-hint hidden">«Повторить» — снова через несколько вопросов · «Знаю» — по расписанию</p></div>
  </section>
  <section id="library" class="tab-content hidden">
   <div class="card">
