@@ -231,7 +231,7 @@ function renderCard(){
  if(!cards)return;
  const it=cards.items[cards.index],n=$('card-content');clear(n);
  const display=translated(it);
- $('card-count').textContent=`Карточка ${cards.index+1} из ${cards.items.length}`;
+ $('card-count').textContent=`Вопрос ${cards.index+1} из ${cards.items.length}`;
  n.append(itemHeading(it),el('div',display.prompt,'qtext'));
  if(cards.revealed){
   n.append(el('div',display.answer||'Ответ в банке не указан.','feedback flash'));
@@ -239,7 +239,7 @@ function renderCard(){
   const comment=String(display.cardComment||'').replace(/\s+/g,' ').trim();
   if(comment&&comment!==answer)n.append(el('p',display.cardComment,'card-comment'));
  }
- n.append(sourceNode(it));show('reveal-card',!cards.revealed);show('again-card',cards.revealed);show('know-card',cards.revealed);
+ n.append(sourceNode(it));show('reveal-card',!cards.revealed);show('again-card',cards.revealed);show('know-card',cards.revealed);show('card-actions-hint',cards.revealed);
 }
 function cardAnswer(known){
  if(!cards)return;
