@@ -29,7 +29,17 @@ function $(id){return document.getElementById(id);}
 function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
 function clear(n){n.replaceChildren();}
 function show(id,yes){$(id).classList.toggle('hidden',!yes);}
-function classify(it){return it.type==='quiz'?'Systems':it.type==='memory'?'Memory Items':it.type==='limitation'?'Limitations':'Interview';}
+// Card category is independent from the quiz/review interaction format.
+// Older Limitations packs contain quiz and interview items rather than type='limitation'.
+// Classify by topic without rewriting imported items, IDs, or learning progress.
+function cardKind(it){
+ if(it.type==='memory')return 'memory';
+ const category=String(it.category||'').trim().toLowerCase();
+ if(it.type==='limitation'||category==='limitation'||category==='limitations'||/^limitations(?:$|[\s·:–—-])/i.test(String(it.topic||'').trim()))return 'limitation';
+ if(it.type==='interview')return 'interview';
+ return 'system';
+}
+function classify(it){return {system:'Systems',memory:'Memory Items',limitation:'Limitations',interview:'Interview'}[cardKind(it)];}
 function validatePack(value){
  if(!value||typeof value!=='object'||value.schemaVersion!==1||!Array.isArray(value.items))return {ok:false,error:'Нужен объект schemaVersion: 1 с массивом items.'};
  if(value.items.length>5000)return {ok:false,error:'Максимум 5000 вопросов в одном файле.'};
@@ -160,7 +170,7 @@ function quizStart(){
  const topic=$('quiz-topic').value,set=$('quiz-set').value;
  let items=pack.items.filter(q=>q.type==='quiz'&&(topic==='all'||q.topic===topic));
  if(set==='wrong')items=items.filter(q=>progress.wrongIds.includes(q.id));
- if(!items.length){alert('По выбранным условиям нет вопросов с вариантами ответа. Для Memory Items и Limitations используй «Карточки».');return;}
+ if(!items.length){alert('По выбранным условиям нет вопросов с вариантами ответа. Для вопросов без вариантов используй «Повторение».');return;}
  items=shuffleItems(items);
  session={items,index:0,selected:[],checked:false,correct:0};
  show('quiz-start',false);show('quiz-finish',false);show('quiz-active',true);renderQuestion();
@@ -217,7 +227,7 @@ function quizReset(){session=null;show('quiz-active',false);show('quiz-finish',f
 let cards=null;
 function cardsStart(){
  const t=$('card-topic').value,type=$('card-type').value,scope=$('card-scope').value;
- let items=pack.items.filter(q=>(t==='all'||q.topic===t)&&(type==='all'||(type==='system'?q.type==='quiz':q.type===type)));
+ let items=pack.items.filter(q=>(t==='all'||q.topic===t)&&(type==='all'||cardKind(q)===type));
  if(scope==='due'){
   const now=Date.now();
   items=items.filter(q=>!progress.cards[q.id]||!Number.isFinite(progress.cards[q.id].next)||progress.cards[q.id].next<=now);
