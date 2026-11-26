@@ -40,6 +40,10 @@ function cardKind(it){
  return 'system';
 }
 function classify(it){return {system:'Systems',memory:'Memory Items',limitation:'Limitations',interview:'Interview'}[cardKind(it)];}
+// Quiz interaction and subject category are separate: a Limitations item may be both
+// a Limitation flashcard and a multiple-choice quiz. Keep legacy JSON compatible.
+function hasChoiceAnswers(it){return Array.isArray(it.options)&&Array.isArray(it.correctIndices);}
+function canTakeQuiz(it){return it.type==='quiz'||(it.type==='limitation'&&hasChoiceAnswers(it));}
 function validatePack(value){
  if(!value||typeof value!=='object'||value.schemaVersion!==1||!Array.isArray(value.items))return {ok:false,error:'Нужен объект schemaVersion: 1 с массивом items.'};
  if(value.items.length>5000)return {ok:false,error:'Максимум 5000 вопросов в одном файле.'};
@@ -49,7 +53,7 @@ function validatePack(value){
   if(!q||typeof q.id!=='string'||!q.id||ids.has(q.id))return {ok:false,error:`Некорректный или повторяющийся id: строка ${i+1}`};
   ids.add(q.id);
   if(!['quiz','memory','limitation','interview'].includes(q.type)||typeof q.topic!=='string'||typeof q.prompt!=='string'||typeof q.answer!=='string')return {ok:false,error:`Ошибка полей у ${q.id}`};
-  if(q.type==='quiz'&&(!Array.isArray(q.options)||q.options.length<2||q.options.length>8||!q.options.every(v=>typeof v==='string')||!Array.isArray(q.correctIndices)||q.correctIndices.length<1||!q.correctIndices.every(x=>Number.isInteger(x)&&x>=0&&x<q.options.length)||new Set(q.correctIndices).size!==q.correctIndices.length))return {ok:false,error:`Некорректные варианты или правильные ответы у ${q.id}`};
+  if((q.type==='quiz'||q.options!==undefined||q.correctIndices!==undefined)&&(!Array.isArray(q.options)||q.options.length<2||q.options.length>8||!q.options.every(v=>typeof v==='string')||!Array.isArray(q.correctIndices)||q.correctIndices.length<1||!q.correctIndices.every(x=>Number.isInteger(x)&&x>=0&&x<q.options.length)||new Set(q.correctIndices).size!==q.correctIndices.length))return {ok:false,error:`Некорректные варианты или правильные ответы у ${q.id}`};
   if(q.source && (typeof q.source !== 'object'||Array.isArray(q.source)))return {ok:false,error:`Некорректный source у ${q.id}`};
  }
  return {ok:true};
@@ -60,7 +64,7 @@ let questionLang='en';
 try{if(localStorage.getItem(LANGUAGE_KEY)==='ru')questionLang='ru';}catch(_ignored){}
 function translated(it){
  const en=questionLang==='en'?it.translations?.en:null;
- const valid=en&&typeof en.prompt==='string'&&en.prompt.trim()&&(it.type!=='quiz'||Array.isArray(en.options)&&en.options.length===it.options.length&&en.options.every(v=>typeof v==='string'));
+ const valid=en&&typeof en.prompt==='string'&&en.prompt.trim()&&(!canTakeQuiz(it)||Array.isArray(en.options)&&en.options.length===it.options.length&&en.options.every(v=>typeof v==='string'));
  return valid?{prompt:en.prompt,options:en.options||it.options,answer:en.answer||it.answer,explanation:en.explanation||it.explanation,cardComment:typeof en.cardComment==='string'?en.cardComment:''}:{prompt:it.prompt,options:it.options,answer:it.answer,explanation:it.explanation,cardComment:typeof it.cardComment==='string'?it.cardComment:''};
 }
 function changeQuestionLang(lang){
@@ -93,7 +97,8 @@ function reviewSummary(it){
   :'Сверка с источником не отмечена.';
 }
 function learningCore(it){
- return JSON.stringify(canonical({type:it.type,prompt:it.prompt,options:it.options||null,correctIndices:it.correctIndices||null,answer:it.answer}));
+ const stableKind=cardKind(it)==='limitation'?(hasChoiceAnswers(it)?'limitation-choice':'limitation-recall'):it.type;
+ return JSON.stringify(canonical({type:stableKind,prompt:it.prompt,options:it.options||null,correctIndices:it.correctIndices||null,answer:it.answer}));
 }
 function revisionChanged(before,after){
  return String(before.source?.revision||'')!==String(after.source?.revision||'') ||
@@ -168,7 +173,7 @@ function shuffleItems(items){
 let session=null;
 function quizStart(){
  const topic=$('quiz-topic').value,set=$('quiz-set').value;
- let items=pack.items.filter(q=>q.type==='quiz'&&(topic==='all'||q.topic===topic));
+ let items=pack.items.filter(q=>canTakeQuiz(q)&&(topic==='all'||q.topic===topic));
  if(set==='wrong')items=items.filter(q=>progress.wrongIds.includes(q.id));
  if(!items.length){alert('По выбранным условиям нет вопросов с вариантами ответа. Для вопросов без вариантов используй «Повторение».');return;}
  items=shuffleItems(items);
